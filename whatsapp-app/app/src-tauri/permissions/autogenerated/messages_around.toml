@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-messages-around"
+description = "Enables the messages_around command without any pre-configured scope."
+commands.allow = ["messages_around"]
+
+[[permission]]
+identifier = "deny-messages-around"
+description = "Denies the messages_around command without any pre-configured scope."
+commands.deny = ["messages_around"]

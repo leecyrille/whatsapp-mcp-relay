@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-set-busy"
+description = "Enables the update_set_busy command without any pre-configured scope."
+commands.allow = ["update_set_busy"]
+
+[[permission]]
+identifier = "deny-update-set-busy"
+description = "Denies the update_set_busy command without any pre-configured scope."
+commands.deny = ["update_set_busy"]

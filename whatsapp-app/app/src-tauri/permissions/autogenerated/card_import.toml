@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-card-import"
+description = "Enables the card_import command without any pre-configured scope."
+commands.allow = ["card_import"]
+
+[[permission]]
+identifier = "deny-card-import"
+description = "Denies the card_import command without any pre-configured scope."
+commands.deny = ["card_import"]

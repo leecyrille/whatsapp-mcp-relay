@@ -1,0 +1,18 @@
+{
+  "_note": "Copy to relay/bin/relay.json beside wa-relay.exe and fill in. Never commit the real file.",
+  "team_domain": "your-team",
+  "aud": "the Application Audience (AUD) tag of your Cloudflare Access application",
+  "allowed_emails": ["you@example.com"],
+  "listen_port": 8704,
+  "bridge_url": "http://127.0.0.1:18700",
+  "runner_url": "http://127.0.0.1:18705",
+  "data_dir": "C:/path/to/whatsapp-app/data",
+  "runner_token_file": "C:/path/to/whatsapp-app/data/runner.token",
+  "downloads_dir": "C:/path/to/whatsapp-app/dist",
+  "calls_log": "C:/path/to/whatsapp-app/logs/relay-calls.jsonl",
+  "name_rule": {
+    "_note": "Optional. Delete this block to turn the rule off. group is a custom group's ID or name; pattern is a Go regular expression, or job-number for names like ABC-2601.",
+    "group": "Jobs",
+    "pattern": "job-number"
+  }
+}

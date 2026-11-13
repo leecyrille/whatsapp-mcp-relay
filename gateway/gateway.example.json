@@ -1,0 +1,23 @@
+{
+  "team_domain": "myteam",
+  "servers": {
+    "whatsapp": {
+      "listen_port": 8701,
+      "upstream": "http://127.0.0.1:18701",
+      "aud": "TODO: the a.<domain> Access app's aud tag",
+      "allowed_emails": [
+        "you@example.com",
+        "you@work.example.com"
+      ],
+      "calls_log": "C:\\mcp\\whatsapp\\calls.log",
+      "tool_access": {
+        "create_contact_card": ["you@example.com"],
+        "update_contact_card": ["you@example.com"],
+        "set_contact_name": ["you@example.com"],
+        "remove_contact_name": ["you@example.com"],
+        "add_contact_email": ["you@example.com"],
+        "remove_contact_email": ["you@example.com"]
+      }
+    }
+  }
+}

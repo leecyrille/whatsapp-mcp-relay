@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-card-save"
+description = "Enables the card_save command without any pre-configured scope."
+commands.allow = ["card_save"]
+
+[[permission]]
+identifier = "deny-card-save"
+description = "Denies the card_save command without any pre-configured scope."
+commands.deny = ["card_save"]

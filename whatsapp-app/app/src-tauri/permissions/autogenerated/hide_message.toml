@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-hide-message"
+description = "Enables the hide_message command without any pre-configured scope."
+commands.allow = ["hide_message"]
+
+[[permission]]
+identifier = "deny-hide-message"
+description = "Denies the hide_message command without any pre-configured scope."
+commands.deny = ["hide_message"]

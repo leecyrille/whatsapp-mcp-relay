@@ -1,0 +1,6 @@
+{
+  "per_minute": 5,
+  "per_hour": 20,
+  "per_day": 60,
+  "min_gap_seconds": 8
+}

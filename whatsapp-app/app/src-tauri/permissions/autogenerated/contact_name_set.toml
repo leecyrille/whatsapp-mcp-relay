@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-contact-name-set"
+description = "Enables the contact_name_set command without any pre-configured scope."
+commands.allow = ["contact_name_set"]
+
+[[permission]]
+identifier = "deny-contact-name-set"
+description = "Denies the contact_name_set command without any pre-configured scope."
+commands.deny = ["contact_name_set"]

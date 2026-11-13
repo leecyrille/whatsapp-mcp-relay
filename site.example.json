@@ -1,0 +1,9 @@
+{
+  "_note": "Copy to site.json (git-ignored) and fill in. Read by the setup scripts and the connector.",
+  "domain": "example.com",
+  "access_team": "myteam",
+  "tunnel": "home",
+  "hosts": {"whatsapp": "a", "app": "d"},
+  "app_emails": ["you@example.com"],
+  "github_repo": "leecyrille/whatsapp-mcp-relay"
+}

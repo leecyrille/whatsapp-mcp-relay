@@ -1,0 +1,10 @@
+# Copy to C:\mcp\cloudflared\config.yml and fill in. Only these hostnames reach the PC; everything else gets 404.
+tunnel: TUNNEL-ID
+credentials-file: C:\mcp\cloudflared\TUNNEL-ID.json
+no-autoupdate: true
+ingress:
+  - hostname: a.example.com
+    service: http://127.0.0.1:8701
+  - hostname: d.example.com
+    service: http://127.0.0.1:8704
+  - service: http_status:404

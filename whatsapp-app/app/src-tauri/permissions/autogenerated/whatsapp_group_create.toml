@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-whatsapp-group-create"
+description = "Enables the whatsapp_group_create command without any pre-configured scope."
+commands.allow = ["whatsapp_group_create"]
+
+[[permission]]
+identifier = "deny-whatsapp-group-create"
+description = "Denies the whatsapp_group_create command without any pre-configured scope."
+commands.deny = ["whatsapp_group_create"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pick-vcard"
+description = "Enables the pick_vcard command without any pre-configured scope."
+commands.allow = ["pick_vcard"]
+
+[[permission]]
+identifier = "deny-pick-vcard"
+description = "Denies the pick_vcard command without any pre-configured scope."
+commands.deny = ["pick_vcard"]

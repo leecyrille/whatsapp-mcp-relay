@@ -1,0 +1,384 @@
+:root {
+  --bg: #f4f5f6;
+  --panel: #ffffff;
+  --panel-2: #f0f1f3;
+  --rail: #e9ebee;
+  --line: #e0e3e7;
+  --text: #15191e;
+  --muted: #5e6873;
+  --faint: #8a939d;
+  --accent: #1a7f68;
+  --accent-text: #ffffff;
+  --accent-soft: #dcf1ea;
+  --mine: #d6f0e6;
+  --theirs: #ffffff;
+  --chat-bg: #eceef0;
+  --danger: #c53030;
+  --warn-bg: #fdf3d8;
+  --warn-text: #6d5310;
+  --mark: #fde68a;
+  --shadow: 0 8px 28px rgb(0 0 0 / 0.16);
+  --hover: rgb(0 0 0 / 0.045);
+  --active: rgb(26 127 104 / 0.13);
+  --unread: rgb(245 170 30 / 0.46);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101316;
+    --panel: #171b1f;
+    --panel-2: #20252b;
+    --rail: #0d1012;
+    --line: #2a3037;
+    --text: #e8ebee;
+    --muted: #a0a9b3;
+    --faint: #6f7883;
+    --accent: #2fb394;
+    --accent-text: #06231c;
+    --accent-soft: #15362e;
+    --mine: #17453a;
+    --theirs: #22282e;
+    --chat-bg: #101316;
+    --danger: #f07171;
+    --warn-bg: #3a2f10;
+    --warn-text: #f3dc9b;
+    --mark: #6b5a12;
+    --shadow: 0 8px 28px rgb(0 0 0 / 0.5);
+    --hover: rgb(255 255 255 / 0.05);
+    --active: rgb(47 179 148 / 0.18);
+    --unread: rgb(245 170 30 / 0.38);
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.42 "Segoe UI Variable Text",
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.btn {
+  padding: 6px 12px;
+  border-radius: 7px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+
+.btn:hover {
+  background: var(--hover);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.btn.primary:hover {
+  filter: brightness(1.08);
+}
+
+.btn.danger {
+  color: var(--danger);
+}
+
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--muted);
+  flex: none;
+}
+
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.selectable {
+  user-select: text;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.faint {
+  color: var(--faint);
+}
+
+.dot {
+  box-shadow: 0 0 0 1px var(--line); /* So any colour the user picks stays visible on any theme. */
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex: none;
+}
+
+.input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  outline: none;
+  user-select: text;
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.42);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  z-index: 40;
+}
+
+.modal {
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  width: min(620px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.modal h2 {
+  font-size: 16px;
+  margin: 0;
+  padding: 16px 18px 10px;
+}
+
+.modal .body {
+  padding: 0 18px 12px;
+  overflow: auto;
+  min-height: 0;
+}
+
+.modal .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--faint) 45%, transparent);
+  border-radius: 6px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* A chat's row, in any chat list column and in search results. */
+.side .row {
+  width: 100%;
+  height: 70px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 12px;
+  text-align: left;
+}
+.side .row.abs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  contain: strict;
+}
+.side .row:hover {
+  background: var(--hover);
+}
+/* The colour is only ever a marker, never behind text, so any colour stays readable on any theme. */
+.side .row.abs {
+  box-shadow: inset 4px 0 0 var(--group-color);
+}
+.side .row.on {
+  background-color: var(--active);
+}
+/* New messages: pulsing amber, so it can't be mistaken for the green of the open chat, plus heavy text so it
+   still shows without relying on colour. The amber is its own layer behind the text, which never changes, and
+   only its opacity animates, so this stays cheap with many rows. It's about 0.6 flashes a second, well under
+   the 3 a second that can cause harm. ChatColumn keeps every row on the same beat. */
+.side .row.unread::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 0 4px;
+  z-index: -1;
+  background: var(--unread);
+  animation: unread-pulse 1.6s ease-in-out infinite;
+}
+@keyframes unread-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+/* Steady for someone who's asked for less motion, by this setting or by Windows'. */
+.side.steady .row.unread::before {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .side .row.unread::before {
+    animation: none;
+  }
+}
+.side .row.abs .name {
+  font-weight: 450;
+}
+/* The font's heaviest is 700. */
+.side .row.abs.unread .name {
+  font-weight: 800;
+}
+.side .row.unread .preview {
+  color: var(--text);
+  font-weight: 600;
+}
+.side .main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.side .line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.side .name {
+  font-weight: 600;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.side .time {
+  font-size: 11.5px;
+  color: var(--faint);
+  flex: none;
+}
+.side .time.fresh {
+  color: var(--text);
+  font-weight: 600;
+}
+.side .preview {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.side .tick {
+  display: inline-block;
+  vertical-align: -3px;
+  color: var(--faint);
+  margin-right: 1px;
+}
+.side .tick.read {
+  color: #2b8fd6;
+}
+.side .count {
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.side .empty {
+  padding: 22px;
+  text-align: center;
+  color: var(--muted);
+  margin: 0;
+}

@@ -1,0 +1,40 @@
+# Private config: copy the *.example files.
+site.json
+gateway/gateway.json
+whatsapp-app/relay/bin/relay.json
+whatsapp-app/relay/bin/runner.json
+whatsapp/instructions.md
+whatsapp/app-setup.md
+cloudflared/config.yml
+
+# Secrets
+.env
+cloudflared/*.json
+secrets/
+*.key
+*.token
+
+# WhatsApp link and messages
+whatsapp/src/whatsapp-bridge/store/
+whatsapp-app/data/
+
+# Logs and state
+logs/
+*.log
+*.db
+*.db-wal
+*.db-shm
+whatsapp/outbox/
+services/OFF-*.flag
+
+# Build output and tools
+toolchain/
+venv/
+*.exe
+whatsapp-app/dist/
+whatsapp-app/relay/bin/*.exe
+node_modules/
+target/
+dist/
+__pycache__/
+.pytest_cache/

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-messages-page"
+description = "Enables the messages_page command without any pre-configured scope."
+commands.allow = ["messages_page"]
+
+[[permission]]
+identifier = "deny-messages-page"
+description = "Denies the messages_page command without any pre-configured scope."
+commands.deny = ["messages_page"]

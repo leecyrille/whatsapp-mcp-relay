@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-attention-test"
+description = "Enables the attention_test command without any pre-configured scope."
+commands.allow = ["attention_test"]
+
+[[permission]]
+identifier = "deny-attention-test"
+description = "Denies the attention_test command without any pre-configured scope."
+commands.deny = ["attention_test"]

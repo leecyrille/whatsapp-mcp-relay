@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-card-undo"
+description = "Enables the card_undo command without any pre-configured scope."
+commands.allow = ["card_undo"]
+
+[[permission]]
+identifier = "deny-card-undo"
+description = "Denies the card_undo command without any pre-configured scope."
+commands.deny = ["card_undo"]

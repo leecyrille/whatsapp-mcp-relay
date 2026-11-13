@@ -1,0 +1,20 @@
+{
+  "_note": "Copy to relay/bin/runner.json beside wa-runner.exe and fill in. Never commit the real file.",
+  "claude_exe": "C:/Users/you/.local/bin/claude.exe",
+  "denied_tools": [
+    "Read(//c/path/to/secrets/**)",
+    "Read(//c/Users/you/.claude/**)",
+    "Read(//c/Users/you/.claude.json)",
+    "Read(//c/Users/you/.ssh/**)",
+    "Read(//c/Users/you/AppData/**)"
+  ],
+  "project_allowlist": ["C:/Users/you/Projects/example-project"],
+  "max_running_jobs": 2,
+  "job_timeout_minutes": 30,
+  "approval_timeout_minutes": 10,
+  "model": "",
+  "listen_port": 18705,
+  "data_dir": "C:/path/to/whatsapp-app/data/claude",
+  "runner_token_file": "C:/path/to/whatsapp-app/data/runner.token",
+  "actions_log": "C:/path/to/whatsapp-app/logs/runner-actions.jsonl"
+}

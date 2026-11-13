@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-revoke-message"
+description = "Enables the revoke_message command without any pre-configured scope."
+commands.allow = ["revoke_message"]
+
+[[permission]]
+identifier = "deny-revoke-message"
+description = "Denies the revoke_message command without any pre-configured scope."
+commands.deny = ["revoke_message"]

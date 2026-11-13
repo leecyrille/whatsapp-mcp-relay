@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-picture-group-access"
+description = "Enables the picture_group_access command without any pre-configured scope."
+commands.allow = ["picture_group_access"]
+
+[[permission]]
+identifier = "deny-picture-group-access"
+description = "Denies the picture_group_access command without any pre-configured scope."
+commands.deny = ["picture_group_access"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-react"
+description = "Enables the react command without any pre-configured scope."
+commands.allow = ["react"]
+
+[[permission]]
+identifier = "deny-react"
+description = "Denies the react command without any pre-configured scope."
+commands.deny = ["react"]

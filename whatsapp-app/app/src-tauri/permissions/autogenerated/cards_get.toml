@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-cards-get"
+description = "Enables the cards_get command without any pre-configured scope."
+commands.allow = ["cards_get"]
+
+[[permission]]
+identifier = "deny-cards-get"
+description = "Denies the cards_get command without any pre-configured scope."
+commands.deny = ["cards_get"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-card-delete"
+description = "Enables the card_delete command without any pre-configured scope."
+commands.allow = ["card_delete"]
+
+[[permission]]
+identifier = "deny-card-delete"
+description = "Denies the card_delete command without any pre-configured scope."
+commands.deny = ["card_delete"]

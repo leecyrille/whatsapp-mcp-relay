@@ -1,0 +1,52 @@
+[package]
+name = "wa-relay-app"
+version = "1.2.18"
+description = "Personal WhatsApp client relayed through the home PC"
+edition = "2021"
+
+[features]
+# For testing a real update between two real installers. Never set for a build that ships.
+test-overrides = []
+
+[lib]
+name = "wa_relay_app_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["stream", "gzip", "json"] }
+tokio = { version = "1", features = ["fs", "io-util", "time", "sync", "macros", "rt"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+url = "2"
+http = "1"
+getrandom = "0.2"
+# Pinned to a minor version because configure_client hands us this plugin's reqwest types.
+tauri-plugin-updater = { version = "~2.14", default-features = false, features = ["native-tls"] }
+reqwest013 = { package = "reqwest", version = "0.13", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+# The version the notification plugin already brings in.
+windows = { version = "0.62", features = ["Data_Xml_Dom", "UI_Notifications", "Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+panic = "abort"

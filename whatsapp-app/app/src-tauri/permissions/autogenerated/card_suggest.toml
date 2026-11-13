@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-card-suggest"
+description = "Enables the card_suggest command without any pre-configured scope."
+commands.allow = ["card_suggest"]
+
+[[permission]]
+identifier = "deny-card-suggest"
+description = "Denies the card_suggest command without any pre-configured scope."
+commands.deny = ["card_suggest"]

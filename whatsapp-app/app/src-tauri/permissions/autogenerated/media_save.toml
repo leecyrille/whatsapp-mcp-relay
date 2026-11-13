@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-media-save"
+description = "Enables the media_save command without any pre-configured scope."
+commands.allow = ["media_save"]
+
+[[permission]]
+identifier = "deny-media-save"
+description = "Denies the media_save command without any pre-configured scope."
+commands.deny = ["media_save"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-silence-clear"
+description = "Enables the silence_clear command without any pre-configured scope."
+commands.allow = ["silence_clear"]
+
+[[permission]]
+identifier = "deny-silence-clear"
+description = "Denies the silence_clear command without any pre-configured scope."
+commands.deny = ["silence_clear"]

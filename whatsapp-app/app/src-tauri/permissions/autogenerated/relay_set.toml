@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-relay-set"
+description = "Enables the relay_set command without any pre-configured scope."
+commands.allow = ["relay_set"]
+
+[[permission]]
+identifier = "deny-relay-set"
+description = "Denies the relay_set command without any pre-configured scope."
+commands.deny = ["relay_set"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-assign"
+description = "Enables the assign command without any pre-configured scope."
+commands.allow = ["assign"]
+
+[[permission]]
+identifier = "deny-assign"
+description = "Denies the assign command without any pre-configured scope."
+commands.deny = ["assign"]

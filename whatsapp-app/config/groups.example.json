@@ -1,0 +1,9 @@
+{
+  "_note": "Optional. The relay writes data/groups.json itself, starting with Personal and Work, and the app edits it. Copy this to data/groups.json only to start with your own groups.",
+  "groups": [
+    { "id": "personal", "name": "Personal", "color": "#2f9e6e", "order": 0 },
+    { "id": "work", "name": "Work", "color": "#3b7ddd", "order": 1 },
+    { "id": "jobs", "name": "Jobs", "color": "#8a6fd1", "order": 2 }
+  ],
+  "assign": {}
+}
