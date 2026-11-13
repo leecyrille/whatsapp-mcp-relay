@@ -1,41 +1,15 @@
 <script lang="ts" module>
-  import type { Pick } from "../lib/mentions";
-  export interface Outgoing {
-    clientId: string;
-    chat: string;
-    text: string;
-    state: "sending" | "failed";
-    kind: "text" | "file";
-    error?: string;
-    name?: string;
-    size?: number;
-    done?: number;
-    token?: string;
-    fileKind?: string;
-    thumb?: string | null;
-    width?: number;
-    height?: number;
-    seconds?: number;
-    quote: unknown;
-    /** Addresses of the people mentioned, sent with the text. */
-    mentions?: string[];
-    /** The text as the user typed it, with names, for showing while it sends. */
-    shown?: string;
-  }
-
-  // Each chat keeps its unsent text, and who its @names are, while the user looks at another one.
-  const drafts = new Map<string, string>();
-  const draftPicks = new Map<string, Pick[]>();
+  export type { Outgoing } from "../lib/unsent.svelte";
   let lists = 0;
-  const hasDrafts = () => [...drafts.values()].some((d) => d.trim().length > 0);
 </script>
 
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from "svelte";
   import { api, errorText, localUrl, type MemberList, type Message, type Picked } from "../lib/api";
   import { fileSize } from "../lib/format";
-  import { activeQuery, findMentions, labelFor, matching, mentionAt, toWire, type Candidate } from "../lib/mentions";
+  import { activeQuery, findMentions, labelFor, matching, mentionAt, toWire, type Candidate, type Pick } from "../lib/mentions";
   import { on, setBusy, toast } from "../lib/state.svelte";
+  import { setDraft, unsent } from "../lib/unsent.svelte";
   import Avatar from "../lib/Avatar.svelte";
   import Icon from "../lib/Icon.svelte";
 
@@ -86,7 +60,7 @@
   }
 
   // The parent recreates this component per chat, so the draft is only read once.
-  let text = $state(untrack(() => drafts.get(chat) ?? ""));
+  let text = $state(untrack(() => unsent.drafts[chat]?.text ?? ""));
   let area = $state<HTMLTextAreaElement>();
   let attached = $state<Attachment[]>([]);
   let asFile = $state(false);
@@ -94,7 +68,7 @@
 
   // @mentions. The box shows "@Name"; toWire turns that into what WhatsApp needs when it's sent.
   const listId = `mention-list-${++lists}`;
-  let picks = $state<Pick[]>(untrack(() => draftPicks.get(chat) ?? []));
+  let picks = $state<Pick[]>(untrack(() => [...(unsent.drafts[chat]?.picks ?? [])]));
   let query = $state<{ start: number; query: string } | null>(null);
   let selected = $state(0);
   let dismissedAt = -1;
@@ -122,11 +96,10 @@
     query = q;
   }
 
+  // Each chat keeps its unsent text, and who its @names are, while the user looks at another one, and
+  // through a restart. Settings lists them all.
   function saveDraft() {
-    drafts.set(chat, text);
-    if (picks.length) draftPicks.set(chat, picks);
-    else draftPicks.delete(chat);
-    setBusy("drafts", hasDrafts());
+    setDraft(chat, text, $state.snapshot(picks));
   }
 
   async function choose(person: Candidate) {
@@ -161,7 +134,7 @@
     updatePicker();
   }
 
-  // Drafts and attachments only live in memory, so an automatic update waits for them.
+  // Attachments only live in memory, so an automatic update waits for them.
   $effect(() => setBusy("attachments", attached.length > 0));
   onDestroy(() => setBusy("attachments", false));
 
@@ -249,9 +222,7 @@
     text = "";
     picks = [];
     query = null;
-    drafts.delete(chat);
-    draftPicks.delete(chat);
-    setBusy("drafts", hasDrafts());
+    setDraft(chat, "", []);
     requestAnimationFrame(grow);
     area?.focus();
   }

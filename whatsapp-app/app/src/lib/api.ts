@@ -287,7 +287,7 @@ export const api = {
   pictureRemove: (jid: string) => invoke<void>("picture_remove", { jid }),
   updateState: () => invoke<UpdateState>("update_state"),
   updateCheck: () => invoke<void>("update_check"),
-  updateInstall: () => invoke<void>("update_install"),
+  updateInstall: (keepUnsent = false) => invoke<void>("update_install", { keepUnsent }),
   updateSetBusy: (busy: boolean) => invoke<void>("update_set_busy", { busy }),
   silenceState: () => invoke<{ until_ms: number | null }>("silence_state"),
   silenceSet: (minutes: number) => invoke<void>("silence_set", { minutes }),

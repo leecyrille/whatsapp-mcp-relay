@@ -36,6 +36,7 @@ export function makeRelay({ showcase = false } = {}) {
   const log = { requests: [], sent: [], read: [], uploads: {}, finished: [], assign: [], approvals: [], claude: [], updateChecks: 0, updateDownloads: 0 };
   let update = null;
   let outage = "";
+  const results = { drop: false, delay: 60 };
   let failReads = 0; // when set, /api/read answers with this status
   const pictures = new Map();
   const ownPictures = new Set();
@@ -661,10 +662,12 @@ export function makeRelay({ showcase = false } = {}) {
       const meta = JSON.parse(await readBody(req));
       log.finished.push({ ...meta, bytes: log.uploads[m[1]]?.length ?? 0 });
       json(res, 202, { ok: true, state: "sending" });
+      // The home PC's answer can come late, or (a dropped connection at that moment) never arrive.
+      if (results.drop) return;
       setTimeout(() => {
         const row = live({ id: "up" + log.finished.length, chat: meta.chat, text: meta.caption, ts: Date.now(), from_me: true, status: "sent", media: "image", mime: "image/png", size: 100, filename: meta.filename, thumb: meta.thumb, width: 10, height: 10, sender: "15559990000" });
         publish({ type: "send_result", client_id: meta.client_id, ok: true, message: row });
-      }, 60);
+      }, results.delay);
       return;
     }
     if (path.startsWith("/api/claude")) return claudeRoute(req, res, path.slice("/api/claude".length), method);
@@ -720,6 +723,12 @@ export function makeRelay({ showcase = false } = {}) {
       outage = body.mode;
       if (outage && outage !== "silent") for (const r of subs) r.destroy();
       return json(res, 200, {});
+    }
+    if (path === "/control/send-results") {
+      const b = JSON.parse(String(await readBody(req)) || "{}");
+      results.drop = !!b.drop;
+      results.delay = Number(b.delay ?? 60);
+      return json(res, 200, { ok: true });
     }
     if (path === "/control/fail-reads") {
       failReads = JSON.parse(await readBody(req)).status ?? 0;

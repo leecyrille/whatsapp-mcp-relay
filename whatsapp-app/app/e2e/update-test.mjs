@@ -177,20 +177,17 @@ try {
   await sleep(3000);
   check("the same or an older version isn't downloaded", relay.log.updateDownloads === downloads);
 
-  // --- The switch.
-  const toggle = page.getByLabel(/Update automatically/);
+  // --- The switch. Off only stops installing by itself: it still checks, and offers the update.
+  const toggle = page.getByLabel(/Install updates automatically/);
   check("automatic updates are on by default", await toggle.isChecked());
   await toggle.uncheck();
   relay.setUpdate(genuine());
-  await sleep(1500);
-  const checks = relay.log.updateChecks;
-  const gets = relay.log.updateDownloads;
-  await sleep(6000);
-  check("turned off, it doesn't check or download", relay.log.updateChecks === checks && relay.log.updateDownloads === gets, `${relay.log.updateChecks - checks} checks`);
+  check("turned off, it still checks and downloads by itself", await stateIs("ready"));
   check("the off switch is remembered", (await invoke("settings_get")).auto_update === false);
-  await page.getByRole("button", { name: "Check now", exact: true }).click();
-  check("Check now still works when it's off", await stateIs("ready"));
+  check("turned off, Settings says it's available, with an Install button", !!(await until(() => page.getByRole("button", { name: "Install update" }).isVisible())) && (await page.getByText(new RegExp(`Version ${NEW.replace(/\./g, "\\.")} is available`)).isVisible()));
+  await page.screenshot({ path: path.join(work, "update-available.png") });
   await toggle.check();
+  check("turned back on, the button says Restart to update", !!(await until(() => page.getByRole("button", { name: "Restart to update" }).isVisible())));
 
   // --- A ready update never interrupts an open window.
   const before = pids();
@@ -199,18 +196,20 @@ try {
   check("it shows as a quiet dot, and a button in Settings", (await page.locator(".rail-btn .dot").isVisible()) && (await page.getByRole("button", { name: "Restart to update" }).isVisible()));
   await page.screenshot({ path: path.join(work, "update-ready.png") });
 
-  // --- The button won't lose a draft or restart under a running job.
+  // --- Something unsent is listed, and the update says it waits for it. The button keeps it through the update.
   await page.getByRole("button", { name: "Chats", exact: true }).click();
   await until(async () => (await page.locator(".side .row").count()) > 0);
   await page.locator(".side .row").first().click();
+  const draftChat = await page.locator(".convo .title .name").innerText();
   const box = page.locator("textarea").first();
-  await box.fill("half-written draft");
+  await box.fill("A made-up draft kept through the update");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.getByRole("button", { name: "Restart to update" }).click();
-  check("Restart won't lose an unsent draft", await until(() => page.getByRole("alert").getByText(/unsent message/).isVisible()));
-  await page.getByRole("button", { name: "Chats", exact: true }).click();
-  await page.locator("textarea").first().fill("");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const listed = page.locator(".unsent li", { hasText: "A made-up draft kept through the update" });
+  check("the draft is listed in Settings, with its chat", !!(await until(() => listed.isVisible())) && (await listed.innerText()).includes(draftChat));
+  check("Settings says the update waits for it, and that updating keeps it", (await page.getByText(/so the update waits/).isVisible()) && (await page.getByText(/Updating now keeps them/).isVisible()));
+  check("it holds back an automatic update", (await state()).held === true);
+  const refused = await invoke("update_install", { keepUnsent: false }).then(() => "installed", (e) => String(e));
+  check("without the user going ahead, the install refuses", /hasn't been sent/.test(refused), refused);
   relay.setClaudeRunning(true);
   await page.getByRole("button", { name: "Restart to update" }).click();
   check("Restart waits for a running Claude job", await until(() => page.getByRole("alert").getByText(/Claude is still working/).isVisible()));
@@ -241,6 +240,15 @@ try {
   check("the login survived the update", relay.log.requests.some((r) => r.agent === `wa-relay-app/${NEW}` && r.cookie?.includes("CF_Authorization=test-login")));
   check("the off/on setting survived the update", (await invoke("settings_get")).auto_update === true);
   check("a silence survived the update, with the same end time", (await invoke("silence_state")).until_ms === silencedUntil && silencedUntil > 0);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const keptDraft = page.locator(".unsent li", { hasText: "A made-up draft kept through the update" });
+  check("the unsent draft survived the update", !!(await until(() => keptDraft.isVisible())));
+  await keptDraft.getByRole("button", { name: "Open chat" }).click();
+  check("and it's back in its chat's box", !!(await until(async () => (await page.locator("textarea").first().inputValue()) === "A made-up draft kept through the update")));
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await keptDraft.getByRole("button", { name: "Discard…" }).click();
+  await keptDraft.getByRole("button", { name: "Yes, discard" }).click();
+  check("once discarded, nothing holds the next update back", !!(await until(async () => (await keptDraft.count()) === 0 && (await state()).held === false)));
   await page.getByRole("button", { name: "Chats", exact: true }).click();
   check("the sidebar width survived the update", widthBefore === 400 && (await until(async () => (await sideWidth()) === widthBefore)) !== null, String(await sideWidth()));
   await invoke("silence_clear");
@@ -280,8 +288,7 @@ try {
   await launch(true);
   await invoke("settings_set", { key: "auto_update", value: false });
   relay.setUpdate(genuine());
-  await invoke("update_check");
-  check("off and hidden: Check now still finds it", await stateIs("ready"));
+  check("off and hidden: it still finds it by itself", await stateIs("ready"));
   const offPids = pids();
   await sleep((IDLE_SECS * 3 + 1) * 1000);
   check("off and hidden: it doesn't install by itself", pids() === offPids && (await state()).current === OLD);

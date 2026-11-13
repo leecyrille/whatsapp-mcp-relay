@@ -987,9 +987,11 @@ pub fn update_check(st: St<'_>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn update_install(app: AppHandle, st: St<'_, >) -> Result<(), String> {
+/// keep_unsent: the user saw the list of unsent things and chose to go ahead. The page only offers it when
+/// everything listed is kept through the restart; a file still being sent always holds it back.
+pub async fn update_install(app: AppHandle, st: St<'_, >, keep_unsent: Option<bool>) -> Result<(), String> {
     let st = st.inner().clone();
-    update::install_now(&app, &st).await
+    update::install_now(&app, &st, keep_unsent.unwrap_or(false)).await
 }
 
 /// The UI says when it holds something a restart would lose, such as an unsent draft.

@@ -4,6 +4,8 @@
   import { fileSize } from "../lib/format";
   import { setBlink, setTwoColumns, toast, ui } from "../lib/state.svelte";
   import Icon from "../lib/Icon.svelte";
+  import { forgetAllUnsent, held } from "../lib/unsent.svelte";
+  import UnsentList from "./UnsentList.svelte";
 
   let stats = $state<any>(null);
   let newGroup = $state("");
@@ -39,7 +41,7 @@
       case "downloading":
         return `Downloading version ${u.version}…`;
       case "ready":
-        return `Version ${u.version} is ready.`;
+        return ui.settings.auto_update ? `Version ${u.version} is ready.` : `Version ${u.version} is available.`;
       case "need_login":
         return "It will check again after you sign in.";
       case "offline":
@@ -62,10 +64,14 @@
     }
   }
 
+  // What holds back an automatic update. Going ahead by hand is fine when all of it is kept through the restart.
+  const holding = $derived(held().filter((h) => h.blocks));
+  const allKept = $derived(holding.every((h) => h.kept));
+
   async function restartNow() {
     restarting = true;
     try {
-      await api.updateInstall();
+      await api.updateInstall(holding.length > 0 && allKept);
     } catch (e) {
       toast(errorText(e));
     }
@@ -154,6 +160,7 @@
     confirmErase = false;
     try {
       await api.signOut(erase);
+      if (erase) forgetAllUnsent();
       ui.active = null;
       stats = await api.stats();
     } catch (e) {
@@ -213,14 +220,23 @@
     <label class="row">
       <input type="checkbox" checked={ui.settings.auto_update} onchange={(e) => set("auto_update", e.currentTarget.checked)} />
       <span>
-        Update automatically
-        <small class="muted">Downloads in the background, then installs once this window has been closed for a few minutes and nothing is in progress.</small>
+        Install updates automatically
+        <small class="muted">Updates download in the background either way. On, one installs once this window has been closed for a few minutes and nothing is in progress. Off, it waits here for you to install it.</small>
       </span>
     </label>
     <p class="muted update" role="status">Version {ui.update.current}. {updateText}</p>
+    {#if ui.update.state === "ready" && holding.length > 0}
+      <p class="note held" role="status">
+        {holding.length === 1 ? "Something you wrote hasn't been sent" : `${holding.length} things you wrote haven't been sent`}, so the update waits.
+        {allKept ? "Updating now keeps them: they'll be here afterwards." : "Send or discard the ones still sending or with a file first."}
+      </p>
+    {/if}
+    <UnsentList />
     <div class="buttons">
       {#if ui.update.state === "ready"}
-        <button class="btn primary" disabled={restarting} onclick={restartNow}>{restarting ? "Restarting…" : "Restart to update"}</button>
+        <button class="btn primary" disabled={restarting} onclick={restartNow}>
+          {restarting ? "Restarting…" : ui.settings.auto_update ? "Restart to update" : "Install update"}
+        </button>
       {:else}
         <button class="btn" disabled={updateBusy} onclick={checkNow}>Check now</button>
       {/if}

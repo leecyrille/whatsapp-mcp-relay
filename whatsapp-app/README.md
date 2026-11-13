@@ -85,8 +85,13 @@ npx tauri build
 `latest.json` of the newest GitHub release, with no login and no cookie. Only if that can't be reached does it ask
 the relay, with its normal login. A new version downloads in the background and is checked, then waits until you
 press Restart to update in Settings, or the window has been closed to the tray for 5 minutes with nothing in
-progress. An open window, an unsent draft or file, or a running Claude job holds it back. Updates can be turned off
-in Settings.
+progress. An open window, a running Claude job, or something you wrote that hasn't gone (a draft, a message that
+didn't send, a file still uploading) holds it back. Settings lists everything unsent, in any chat, with Open chat,
+Send now and Discard. Drafts and messages that didn't send are kept through a restart, so the button can update
+past them. Something unsent stops holding the automatic update back once it's a day old or its chat has left the
+list; it stays listed. A file the home PC already has never holds it back. Turning off "Install updates
+automatically" in Settings only stops it installing by itself: it still checks, and Settings offers Install
+update.
 
 **What proves an update is genuine:** the installer isn't code-signed, so the update signature is the proof. The app
 has the public key built in and refuses anything not signed by the private key for that exact file and version. An

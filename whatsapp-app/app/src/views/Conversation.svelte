@@ -1,14 +1,10 @@
-<script lang="ts" module>
-  import type { Outgoing as OutgoingItem } from "./Composer.svelte";
-  // Outside the component, so a message that hasn't gone out stays put when the user looks at another tab.
-  const outbox = $state<{ items: OutgoingItem[] }>({ items: [] });
-</script>
-
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
-  import { api, errorText, newId, type MemberList, type Message, type Picked } from "../lib/api";
+  import { api, errorText, type MemberList, type Message, type Picked } from "../lib/api";
   import { dayLabel, sameDay } from "../lib/format";
-  import { closeChat, groupOf, on, setBusy, toast, ui } from "../lib/state.svelte";
+  import { closeChat, groupOf, on, toast, ui } from "../lib/state.svelte";
+  // Outside the component, so a message that hasn't gone out stays put when the user looks at another tab.
+  import { discard, onSent, queueFile, queueText, retry, unsent } from "../lib/unsent.svelte";
   import { personColours } from "../lib/people";
   import Avatar from "../lib/Avatar.svelte";
   import Icon from "../lib/Icon.svelte";
@@ -100,11 +96,9 @@
   });
   const colours = $derived(personColours(roster ? roster.split(" ") : []));
 
-  const chatPending = $derived(outbox.items.filter((p) => p.chat === ui.active));
+  const chatPending = $derived(unsent.outbox.filter((p) => p.chat === ui.active));
   const disconnected = $derived(!["ok", "connecting", "catching_up"].includes(ui.conn.link));
 
-  // These only live in memory, so an automatic update waits for them.
-  $effect(() => setBusy("outbox", outbox.items.length > 0));
 
   // Loads when the chat changes. Only ui.active and ui.jumpTo are tracked, so a chat-list refresh
   // doesn't reload the messages.
@@ -280,44 +274,14 @@
     return { id: m.id, sender: m.from_me ? "" : m.sender_jid, text: m.text || (m.media ? `[${m.media}]` : "") };
   }
 
-  async function sendText(text: string, mentions: string[], shown: string) {
+  function sendText(text: string, mentions: string[], shown: string) {
     if (!ui.active) return;
-    const item: Outgoing = {
-      clientId: newId(),
-      chat: ui.active,
-      text,
-      mentions,
-      shown,
-      state: "sending",
-      kind: "text",
-      quote: quoteOf(replyTo),
-    };
-    outbox.items.push(item);
+    queueText(ui.active, text, mentions, shown, quoteOf(replyTo));
     replyTo = null;
     scrollToEnd();
-    void deliverText(item);
   }
 
-  async function deliverText(item: Outgoing) {
-    const current = outbox.items.find((p) => p.clientId === item.clientId);
-    if (current) {
-      current.state = "sending";
-      current.error = undefined;
-    }
-    try {
-      await api.sendText(item.chat, item.text, item.quote, item.clientId, item.mentions ?? []);
-      outbox.items = outbox.items.filter((p) => p.clientId !== item.clientId);
-      await refresh();
-    } catch (e) {
-      const failed = outbox.items.find((p) => p.clientId === item.clientId);
-      if (failed) {
-        failed.state = "failed";
-        failed.error = errorText(e);
-      }
-    }
-  }
-
-  async function sendFile(
+  function sendFile(
     file: Picked,
     caption: string,
     kind: string,
@@ -329,17 +293,13 @@
     shown: string,
   ) {
     if (!ui.active) return;
-    const item: Outgoing = {
-      clientId: newId(),
+    queueFile({
       chat: ui.active,
       text: caption,
       mentions,
       shown,
-      state: "sending",
-      kind: "file",
       name: file.name,
       size: file.size,
-      done: 0,
       token: file.token,
       fileKind: kind,
       thumb,
@@ -347,51 +307,9 @@
       height,
       seconds,
       quote: quoteOf(replyTo),
-    };
-    outbox.items.push(item);
+    });
     replyTo = null;
     scrollToEnd();
-    void deliverFile(item);
-  }
-
-  async function deliverFile(item: Outgoing) {
-    const current = outbox.items.find((p) => p.clientId === item.clientId);
-    if (current) {
-      current.state = "sending";
-      current.error = undefined;
-    }
-    try {
-      await api.sendFile({
-        chat: item.chat,
-        token: item.token!,
-        kind: item.fileKind!,
-        caption: item.text,
-        thumb: item.thumb ?? null,
-        width: item.width ?? 0,
-        height: item.height ?? 0,
-        seconds: item.seconds ?? 0,
-        quote: item.quote,
-        clientId: item.clientId,
-        mentions: item.mentions ?? [],
-      });
-      // Uploaded. The home PC now sends it to WhatsApp, and a send-result event reports the outcome.
-    } catch (e) {
-      const failed = outbox.items.find((p) => p.clientId === item.clientId);
-      if (failed) {
-        failed.state = "failed";
-        failed.error = errorText(e);
-      }
-    }
-  }
-
-  function retry(item: Outgoing) {
-    if (item.kind === "text") void deliverText(item);
-    else void deliverFile(item);
-  }
-
-  function discard(item: Outgoing) {
-    outbox.items = outbox.items.filter((p) => p.clientId !== item.clientId);
-    if (item.token) void api.forgetToken(item.token);
   }
 
   function scrollToEnd() {
@@ -420,20 +338,9 @@
     on("chats-changed", (changed: string[]) => {
       if (ui.active && (changed.length === 0 || changed.includes(ui.active))) void refresh();
     }),
-    on("send-progress", (p) => {
-      const item = outbox.items.find((x) => x.clientId === p.client_id);
-      if (item) item.done = p.done;
-    }),
-    on("send-result", (r) => {
-      const item = outbox.items.find((x) => x.clientId === r.client_id);
-      if (!item) return;
-      if (r.ok) {
-        outbox.items = outbox.items.filter((x) => x.clientId !== r.client_id);
-        void refresh();
-      } else {
-        item.state = "failed";
-        item.error = r.error ?? "Couldn't send that file.";
-      }
+    // The outbox itself is kept up to date in unsent.svelte.ts, whichever view is showing.
+    onSent((chat) => {
+      if (chat === ui.active) void refresh();
     }),
   ];
   onDestroy(() => unsubscribers.forEach((off) => off()));

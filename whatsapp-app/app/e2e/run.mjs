@@ -385,11 +385,11 @@ try {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   check("settings show cached totals", !!(await until(() => page.getByText(/messages in \d+ chats/).isVisible())));
   await page.screenshot({ path: path.join(shotDir, "11-settings.png") });
-  check("automatic updates default to on", await page.getByLabel(/Update automatically/).isChecked());
+  check("automatic updates default to on", await page.getByLabel(/Install updates automatically/).isChecked());
   check("settings show this version", await page.getByText(/^Version \d+\.\d+\.\d+\./).isVisible());
-  await page.getByLabel(/Update automatically/).uncheck();
+  await page.getByLabel(/Install updates automatically/).uncheck();
   check("turning updates off sticks", (await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("settings_get"))).auto_update === false);
-  await page.getByLabel(/Update automatically/).check();
+  await page.getByLabel(/Install updates automatically/).check();
   const updaterPlugin = await page.evaluate(async () => {
     try {
       await window.__TAURI_INTERNALS__.invoke("plugin:updater|check", {});
@@ -2572,6 +2572,138 @@ try {
       if (list) list.scrollTop = Math.max(0, at * 70 - 140);
     }, label);
     check("and so does its row in the list", !!(await until(() => page.locator(".side .row.abs .name", { hasText: label }).first().isVisible())));
+  }
+
+  // Anything unsent: Settings lists it wherever it is, and each can be opened, sent or let go. Only things that
+  // can still go, and are under a day old, hold back an automatic update.
+  {
+    const chats = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("chat_list"));
+    const nameOf = (jid) => chats.find((c) => c.jid === jid)?.name ?? "";
+    const held = () => page.evaluate(() => window.__TAURI_INTERNALS__.invoke("update_state")).then((u) => u.held);
+    const settings = () => page.getByRole("button", { name: "Settings", exact: true }).click();
+    const chatsTab = () => page.getByRole("button", { name: "Chats", exact: true }).click();
+    const open = async (jid) => {
+      await chatsTab();
+      await page.locator("#search").fill(nameOf(jid));
+      await page.locator(".results .row", { hasText: nameOf(jid) }).first().click();
+      await page.locator("#search").fill("");
+      await until(async () => (await page.locator(".convo .title .name").innerText()) === nameOf(jid));
+    };
+    const list = page.locator(".unsent");
+    const entry = (text) => list.locator("li", { hasText: text });
+    const box = page.locator(".composer textarea").first();
+
+    // A draft left in one chat while looking at another.
+    await open(DM);
+    await box.fill("A made-up draft to find later");
+    await open(DM2);
+    await settings();
+    const draft = entry("A made-up draft to find later");
+    check("unsent: a draft in another chat is listed in Settings", !!(await until(() => draft.isVisible())));
+    check("unsent: it says which chat, and that it's a draft", (await draft.innerText()).includes(nameOf(DM)) && (await draft.innerText()).includes("Draft"), await draft.innerText());
+    check("unsent: a fresh draft holds back an automatic update", (await held()) === true);
+    await page.screenshot({ path: path.join(shotDir, "60-unsent-list.png") });
+    await draft.getByRole("button", { name: "Open chat" }).click();
+    check("unsent: Open chat goes to it, with the draft in the box", !!(await until(async () => (await page.locator(".convo .title .name").innerText()) === nameOf(DM) && (await box.inputValue()) === "A made-up draft to find later")));
+    await settings();
+    const sentBefore = (await relayLog()).sent.length;
+    await draft.getByRole("button", { name: "Send now" }).click();
+    check("unsent: Send now sends the draft, once", !!(await until(async () => {
+      const sent = (await relayLog()).sent;
+      return sent.length === sentBefore + 1 && sent.at(-1).text === "A made-up draft to find later";
+    })));
+    check("unsent: then it's gone from the list, and holds nothing back", !!(await until(async () => (await draft.count()) === 0 && (await held()) === false)));
+    await open(DM);
+    check("unsent: and the chat's box is empty", (await box.inputValue()) === "");
+
+    // A message that didn't send: Discard asks first.
+    await open(DM2);
+    await control("outage", { mode: "530" });
+    await box.fill("A made-up message that didn't go");
+    await box.press("Enter");
+    await until(() => page.locator(".pending.failed", { hasText: "didn't go" }).isVisible());
+    await control("outage", { mode: "" });
+    await settings();
+    const failed = entry("A made-up message that didn't go");
+    check("unsent: a message that didn't send is listed", !!(await until(() => failed.isVisible())) && (await failed.innerText()).includes("Didn't send"));
+    const sentNow = (await relayLog()).sent.length;
+    await failed.getByRole("button", { name: "Discard…" }).click();
+    check("unsent: Discard asks first", await failed.getByText("Discard this? It can't be brought back.").isVisible());
+    await failed.getByRole("button", { name: "Keep it" }).click();
+    check("unsent: Keep it keeps it", (await failed.count()) === 1 && (await failed.getByRole("button", { name: "Send now" }).isVisible()));
+    await failed.getByRole("button", { name: "Discard…" }).click();
+    await failed.getByRole("button", { name: "Yes, discard" }).click();
+    check("unsent: Yes, discard removes it without sending it", !!(await until(async () => (await failed.count()) === 0)) && (await relayLog()).sent.length === sentNow);
+    await chatsTab();
+    check("unsent: and it's gone from its chat too", (await page.locator(".pending", { hasText: "didn't go" }).count()) === 0);
+    check("unsent: nothing holds back the update now", (await held()) === false);
+
+    // A file's result arriving while another view is showing still clears it. Before, it stayed "sending".
+    const paste = () =>
+      box.evaluate((el) => {
+        const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mNkYPj/n4EIwMRIJBhVSAwAVhQBEhQmF1wAAAAASUVORK5CYII="), (c) => c.charCodeAt(0));
+        const data = new DataTransfer();
+        data.items.add(new File([png], "made-up.png", { type: "image/png" }));
+        el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      });
+    await control("send-results", { delay: 4000 });
+    await open(DM);
+    let finishedBefore = (await relayLog()).finished.length;
+    await paste();
+    await until(async () => (await page.locator(".composer .att").count()) === 1);
+    await box.fill("A made-up late photo");
+    await box.press("Enter");
+    await until(async () => (await relayLog()).finished.length === finishedBefore + 1);
+    await settings();
+    const late = entry("A made-up late photo");
+    check("unsent: a file the home PC has shows as waiting for WhatsApp", !!(await until(() => late.isVisible())) && (await late.innerText()).includes("With your home PC"), await late.innerText().catch(() => ""));
+    check("unsent: and it holds nothing back, since a restart here can't lose it", (await held()) === false);
+    check("unsent: its result clears it while Settings is showing", !!(await until(async () => (await late.count()) === 0, 15000)));
+    await chatsTab();
+    check("unsent: and its chat shows no stuck bubble", (await page.locator(".pending", { hasText: "A made-up late photo" }).count()) === 0);
+
+    // A result that never comes doesn't hold anything back either.
+    await control("send-results", { drop: true });
+    finishedBefore = (await relayLog()).finished.length;
+    await paste();
+    await until(async () => (await page.locator(".composer .att").count()) === 1);
+    await box.fill("A made-up photo whose answer is lost");
+    await box.press("Enter");
+    await until(async () => (await relayLog()).finished.length === finishedBefore + 1);
+    check("unsent: a file whose answer never comes holds nothing back", !!(await until(async () => (await held()) === false)));
+    await control("send-results", { delay: 60 });
+
+    // Drafts survive a restart of the page. One for a chat that's gone, and one over a day old, are listed
+    // but hold nothing back.
+    await box.fill("A made-up draft that outlives a reload");
+    await page.evaluate((stale) => {
+      const saved = JSON.parse(localStorage.getItem("wa-unsent") ?? "{}");
+      saved.drafts = saved.drafts ?? {};
+      saved.drafts["15550009999@s.whatsapp.net"] = { text: "A made-up draft for a chat that's gone", picks: [], at: Date.now() };
+      saved.drafts[stale] = { text: "A made-up draft from last week", picks: [], at: Date.now() - 7 * 86400000 };
+      localStorage.setItem("wa-unsent", JSON.stringify(saved));
+    }, DM2);
+    await page.reload();
+    await until(() => page.evaluate(() => !!window.__TAURI_INTERNALS__));
+    await until(async () => (await page.locator(".side .row").count()) > 0);
+    await settings();
+    const kept = entry("A made-up draft that outlives a reload");
+    const gone = entry("for a chat that's gone");
+    const old = entry("from last week");
+    check("unsent: a draft is still there after a restart", !!(await until(() => kept.isVisible())));
+    check("unsent: a draft for a chat that's gone is listed, with no way to open or send it", (await gone.innerText()).includes("no longer in your list") && (await gone.getByRole("button", { name: "Open chat" }).count()) === 0 && (await gone.getByRole("button", { name: "Send now" }).count()) === 0, await gone.innerText().catch(() => ""));
+    check("unsent: an old draft says it no longer holds anything back", (await old.innerText()).includes("over a day old"), await old.innerText().catch(() => ""));
+    await kept.getByRole("button", { name: "Discard…" }).click();
+    await kept.getByRole("button", { name: "Yes, discard" }).click();
+    check("unsent: with only those two left, nothing holds back the update", !!(await until(async () => (await kept.count()) === 0 && (await held()) === false)));
+    for (const row of [gone, old]) {
+      await row.getByRole("button", { name: "Discard…" }).click();
+      await row.getByRole("button", { name: "Yes, discard" }).click();
+    }
+    check("unsent: once all are dealt with, the list goes", !!(await until(async () => (await list.count()) === 0)));
+    await open(DM2);
+    check("unsent: a discarded draft doesn't come back in its chat", (await box.inputValue()) === "");
+    await chatsTab();
   }
 
   // Settings shows which relay this copy uses, and won't take a bad address in its place.

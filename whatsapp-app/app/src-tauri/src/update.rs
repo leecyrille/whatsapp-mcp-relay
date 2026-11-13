@@ -143,7 +143,8 @@ impl Updates {
 
     fn status_json(&self, current: &str) -> Value {
         let (state, version) = self.status.lock().unwrap().clone();
-        json!({ "state": state, "version": version, "current": current })
+        // held: whether something in progress is holding back an automatic install right now.
+        json!({ "state": state, "version": version, "current": current, "held": self.busy() })
     }
 
     fn has_staged(&self) -> bool {
@@ -151,7 +152,11 @@ impl Updates {
     }
 
     fn busy(&self) -> bool {
-        self.ui_busy.load(Ordering::SeqCst) || self.sending.load(Ordering::SeqCst) > 0
+        self.ui_busy.load(Ordering::SeqCst) || self.uploading()
+    }
+
+    fn uploading(&self) -> bool {
+        self.sending.load(Ordering::SeqCst) > 0
     }
 
     pub fn log(&self, line: &str) {
@@ -476,12 +481,15 @@ fn install(app: &AppHandle, st: &AppState, show: bool) -> String {
 }
 
 /// The user pressed the button. Still refuses to lose what's in progress, but says why.
-pub async fn install_now(app: &AppHandle, st: &Arc<AppState>) -> Result<(), String> {
+pub async fn install_now(app: &AppHandle, st: &Arc<AppState>, keep_unsent: bool) -> Result<(), String> {
     if !st.updates.has_staged() {
         return Err("There's no update ready.".into());
     }
-    if st.updates.busy() {
-        return Err("You have an unsent message or file. Send or clear it first.".into());
+    if st.updates.uploading() {
+        return Err("A file is still being sent. Try again when it's done.".into());
+    }
+    if st.updates.busy() && !keep_unsent {
+        return Err("Something you wrote hasn't been sent. Settings lists it: send it, or discard it.".into());
     }
     if claude_running(st).await {
         return Err("Claude is still working. Try again when it finishes.".into());
@@ -523,7 +531,8 @@ pub async fn run(app: AppHandle, st: Arc<AppState>) {
         }
         let now = Instant::now();
         let is_enabled = enabled(&st);
-        if !st.updates.has_staged() && (manual || (is_enabled && now >= next_check)) {
+        // Turned off only stops installing by itself: it still checks, so Settings can offer the update.
+        if !st.updates.has_staged() && (manual || now >= next_check) {
             next_check = Instant::now() + check(&app, &st, &timing).await;
         }
         let window_open = app.get_webview_window("login").is_some()

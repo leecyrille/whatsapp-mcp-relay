@@ -6,6 +6,8 @@
   import Icon from "./lib/Icon.svelte";
   import Sidebar from "./views/Sidebar.svelte";
   import Conversation from "./views/Conversation.svelte";
+  // Loaded at start, so drafts and unsent messages from before a restart count from the first moment.
+  import "./lib/unsent.svelte";
   import Contacts from "./views/Contacts.svelte";
   import ClaudePanel from "./views/ClaudePanel.svelte";
   import Settings from "./views/Settings.svelte";
