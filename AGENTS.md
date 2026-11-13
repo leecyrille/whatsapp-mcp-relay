@@ -67,7 +67,8 @@ Make the private config files from the examples. They are git-ignored, so keep t
 |---|---|---|
 | `site.example.json` | `site.json` | The user's domain, an Access team name, and a tunnel name. Hosts default to `a` (connector) and `d` (app) |
 | `gateway\gateway.example.json` | `gateway\gateway.json` | `allowed_emails` holds the emails allowed to use the connector. `tool_access` limits contact-editing tools to some of those emails |
-| `whatsapp-app\relay\bin\relay.example.json` | `relay.json` | The emails allowed to use the app. Keep this list narrow |
+| `whatsapp-app\config\relay.example.json` | `whatsapp-app\relay\bin\relay.json` | The emails allowed to use the app. Keep this list narrow. `name_rule` is optional and off when absent |
+| `whatsapp-app\config\groups.example.json`, `runner.example.json` | `whatsapp-app\data\groups.json`, `relay\bin\runner.json` | Optional: starting chat groups, and the runner for the app's Claude features. See `whatsapp-app\README.md` |
 | `whatsapp\instructions.example.md` | `instructions.md` | Optional notes the connector gives the AI, read fresh on every connect |
 
 Ask the user which email addresses to allow. Sign-in is by a PIN emailed to that address.
