@@ -102,8 +102,13 @@ python tools/release.py --github dry-run # dist/, plus the GitHub files and the 
 
 It builds, signs, checks the signature against the app's public key, makes sure a tampered copy fails, publishes to
 `dist/` for the relay, and then, with `gh`, creates the GitHub release: the installer, its `.sig`, and `latest.json`.
-Before anything goes to GitHub it checks the repository is public and scans the built program for the private names
-in `site.json`. The signing key stays on this PC, so there are no CI secrets.
+It builds with `--remap-path-prefix`, so source paths recorded in the program (which on Windows start with your user
+folder) come out as `/cargo/...`, `/src/...` and so on. Before anything goes to `dist/` or GitHub it scans the built
+program itself and its web files, not the compressed installer, as plain bytes and as UTF-16, for the names in
+`site.json`, your Windows user name, your login emails' domains, and any patterns in an optional private
+`secrets/public_denylist.txt` next to this folder; anything found stops the release. A harmless match inside
+third-party data can be let through by putting the text around it in `scan-allow.private.txt`. For GitHub it also
+checks the repository is public. The signing key stays on this PC, so there are no CI secrets.
 
 **Step releases:** `python tools/release.py --bake-relay --step` builds with your relay's address built in and
 publishes it to `dist/` only, never GitHub, marked as a step. The relay offers a step to every older copy before

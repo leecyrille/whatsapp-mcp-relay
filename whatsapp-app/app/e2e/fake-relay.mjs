@@ -13,7 +13,26 @@ const LID = "99999@lid";
 const DM2 = "15550000002@s.whatsapp.net";
 const GROUP = "120363000000000001@g.us";
 
-export function makeRelay() {
+// Made-up people and groups for the README screenshots (e2e/readme-shots.mjs). Nobody here is real.
+const SHOW_PEOPLE = [
+  ["15550100001", "Maya Chen"],
+  ["15550100002", "Daniel Okafor"],
+  ["15550100003", "Priya Raman"],
+  ["15550100004", "Tom Becker"],
+  ["15550100005", "Sofia Alvarez"],
+  ["15550100006", "Jonas Weber"],
+  ["15550100007", "Aisha Karimi"],
+  ["15550100008", "Marco Rossi"],
+].map(([n, name]) => ({ jid: `${n}@s.whatsapp.net`, name }));
+const SHOW_GROUPS = [
+  { jid: "120363555000000001@g.us", name: "Weekend Hikers" },
+  { jid: "120363555000000002@g.us", name: "Kitchen Reno" },
+  { jid: "120363555000000003@g.us", name: "Product Launch" },
+  { jid: "120363555000000004@g.us", name: "Book Club" },
+  { jid: "120363555000000005@g.us", name: "Family" },
+];
+
+export function makeRelay({ showcase = false } = {}) {
   const log = { requests: [], sent: [], read: [], uploads: {}, finished: [], assign: [], approvals: [], claude: [], updateChecks: 0, updateDownloads: 0 };
   let update = null;
   let outage = "";
@@ -72,6 +91,59 @@ export function makeRelay() {
     return row;
   }
 
+  if (showcase) {
+    const min = 60000;
+    const [maya, daniel, priya, tom, sofia, jonas, aisha, marco] = SHOW_PEOPLE;
+    const [hikers, reno, launch, books, family] = SHOW_GROUPS;
+    const me = "15559990000";
+    const from = (p) => ({ sender: p.jid.split("@")[0], sender_jid: p.jid, push_name: p.name.split(" ")[0] });
+    const mine = { from_me: true, status: "read", sender: me };
+    // Newest first in the list: [chat, name, minutes ago, unread?]
+    const list = [
+      [hikers, 2, true],
+      [maya, 9, true],
+      [launch, 25, false],
+      [daniel, 48, false],
+      [reno, 95, true],
+      [priya, 160, false],
+      [books, 300, false],
+      [tom, 600, false],
+      [family, 900, false],
+      [sofia, 1500, false],
+      [jonas, 2900, false],
+      [aisha, 4400, false],
+      [marco, 7300, false],
+    ];
+    for (const [c, ago, unread] of list) addChat(c.jid, c.name, now - ago * min, unread ? now - (ago + 30) * min : now);
+    const say = (chat, id, ago, text, extra = {}) => addMsg({ id, chat: chat.jid, text, ts: now - ago * min, ...extra });
+    // The open conversation.
+    say(hikers, "h1", 75, "Who's in for Saturday? Thinking the ridge trail, about 12 km.", from(maya));
+    say(hikers, "h2", 70, "In! What time are we starting?", from(daniel));
+    say(hikers, "h3", 66, "8:00 at the north trailhead, so we beat the heat", mine);
+    say(hikers, "h4", 60, "I'll bring snacks and the first aid kit", { ...from(priya), reactions: { [maya.jid]: "🙌", me: "👍" } });
+    say(hikers, "h5", 41, "Forecast says *sunny* and 22°, perfect", from(tom));
+    say(hikers, "h6", 30, "Can someone give me a lift? My car's in the shop", from(sofia));
+    say(hikers, "h7", 24, "Sure, I'll pick you up at 7:30", { ...mine, quoted_id: "h6", quoted_text: "Can someone give me a lift? My car's in the shop", quoted_sender: sofia.jid });
+    say(hikers, "h8", 6, "Map of the loop: https://example.com/ridge-trail", from(maya));
+    say(hikers, "h9", 2, "See everyone Saturday! 🥾", from(daniel));
+    // Last message in every other chat.
+    say(maya, "m1", 9, "Did you get the tickets for Friday?");
+    say(launch, "l1", 25, "Slides are final, sending them to the team now", from(aisha));
+    say(daniel, "d1", 48, "Thanks for dinner last night!", mine);
+    say(reno, "r1", 95, "The cabinets arrive Tuesday morning", from(jonas));
+    say(priya, "p1", 160, "Running 10 minutes late, sorry!");
+    say(books, "b1", 300, "Next month's pick: a mystery, your call", from(sofia));
+    say(tom, "t1", 600, "Sounds good 👍", mine);
+    say(family, "f1", 900, "Happy birthday Grandpa! 🎉", from(marco));
+    say(sofia, "s1", 1500, "Can you send me that recipe?");
+    say(jonas, "j1", 2900, "Invoice paid, thanks", mine);
+    say(aisha, "a1", 4400, "Great meeting today");
+    say(marco, "x1", 7300, "Photos from the trip are up");
+    groups.assign = Object.fromEntries([
+      ...[hikers, books, family, maya, daniel, priya, tom, sofia, marco].map((c) => [c.jid, "personal"]),
+      ...[launch, reno, jonas, aisha].map((c) => [c.jid, "work"]),
+    ]);
+  } else {
   addChat(DM, "15550000001", now - 60000, now - 300000);
   addChat(LID, "", now - 30000, now - 300000);
   addChat(DM2, "Bob Plumber", now - 7200000, now);
@@ -90,6 +162,7 @@ export function makeRelay() {
   addMsg({ id: "g6", chat: GROUP, text: "See you all there", ts: now - 3600000, from_me: true, status: "delivered", sender: "15559990000", reactions: { "15550000001@s.whatsapp.net": "👍", me: "❤️" } });
   for (let i = 0; i < 180; i++) {
     addMsg({ id: `h${i}`, chat: DM2, text: `Older message number ${i} about the job`, ts: now - 90000000 - i * 60000 });
+  }
   }
 
   function publish(obj) {
@@ -346,6 +419,7 @@ export function makeRelay() {
     }
     if (path === "/api/contacts") {
       const named = (contacts) => [...contacts.filter((c) => !names.has(c.jid)), ...contacts.filter((c) => names.has(c.jid)).map((c) => ({ ...c, full_name: names.get(c.jid) })), ...[...names].filter(([jid]) => !contacts.some((c) => c.jid === jid)).map(([jid, full_name]) => ({ jid, full_name }))];
+      if (showcase) return json(res, 200, { contacts: SHOW_PEOPLE.map((p) => ({ jid: p.jid, full_name: p.name })), aliases: [] });
       return json(res, 200, {
         contacts: named([
           { jid: DM, full_name: "Sample Person" },

@@ -9,6 +9,12 @@ at home. It also includes **WA Relay**, a desktop WhatsApp app for your other PC
 - **WA Relay app:** a fast desktop client with offline search. It talks to your home PC, so it doesn't use up another
   WhatsApp linked device. It **updates itself** from this repo's GitHub Releases.
 
+| Light | Dark |
+|---|---|
+| ![WA Relay in light mode, showing a list of people and group chats beside an open group conversation](docs/wa-relay-light.png) | ![WA Relay in dark mode, showing the same chats](docs/wa-relay-dark.png) |
+
+*The screenshots use made-up people and chats. `whatsapp-app/app/e2e/readme-shots.mjs` regenerates them.*
+
 ## Set it up: give your agent this repo
 
 This repo is written so an AI coding agent (Claude Code, Codex and similar) can build the whole thing for you. Open

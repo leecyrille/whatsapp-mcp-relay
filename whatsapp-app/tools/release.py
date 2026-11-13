@@ -35,11 +35,34 @@ APP = ROOT / "app"
 TAURI = APP / "src-tauri"
 DIST = ROOT / "dist"
 SITE = ROOT.parent / "site.json"
-KEY = Path(os.environ.get("WA_RELAY_SIGNING_KEY") or ROOT.parent / "secrets" / "wa-relay-update.key")
+SECRETS = ROOT.parent / "secrets"
+KEY = Path(os.environ.get("WA_RELAY_SIGNING_KEY") or SECRETS / "wa-relay-update.key")
+# Private, never exported. The denylist has one pattern per line (a regex, case-insensitive, or after "cs:"
+# case-sensitive). The allow file has snippets of third-party data that contain a match harmlessly, such as
+# a word in a compression dictionary; a match is let through only with that snippet around it.
+DENYLIST = SECRETS / "public_denylist.txt"
+SCAN_ALLOW = ROOT / "scan-allow.private.txt"
 UPDATE_RS = TAURI / "src" / "update.rs"
 GITHUB_NOTES = "WA Relay {version}. Copies that are already installed update themselves. For a first install, see the README."
 CLI = APP / "node_modules" / "@tauri-apps" / "cli" / "tauri.js"
 BUNDLE = TAURI / "target" / "release" / "bundle" / "nsis"
+EXE = TAURI / "target" / "release" / "wa-relay-app.exe"
+FRONTEND = APP / "dist"
+
+
+def remap_flags() -> str:
+    """Rust records source paths in the program (panic locations, from every dependency too), and on Windows
+    they start with this PC's user folder. These map them to neutral names. When several match, rustc uses the
+    last, so the general one goes first. Separated by 0x1f, as CARGO_ENCODED_RUSTFLAGS wants, so a path with a
+    space still works."""
+    home = Path.home()
+    pairs = [
+        (home, "/home"),
+        (Path(os.environ.get("CARGO_HOME") or home / ".cargo"), "/cargo"),
+        (Path(os.environ.get("RUSTUP_HOME") or home / ".rustup"), "/rustup"),
+        (ROOT.parent, "/src"),
+    ]
+    return "\x1f".join(f"--remap-path-prefix={path}={name}" for path, name in pairs)
 
 
 def version_key(name: str) -> tuple[int, ...]:
@@ -161,13 +184,62 @@ def private_strings(details: dict) -> list[str]:
     return sorted({s for s in found if isinstance(s, str) and len(s) >= 4})
 
 
+def scan_patterns(details: dict) -> list[tuple[str, re.Pattern]]:
+    """The private denylist, this site's names, this PC's user name and the login emails' domains."""
+    found = []
+    if DENYLIST.is_file():
+        for line in DENYLIST.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            found.append((line, re.compile(line[3:]) if line.startswith("cs:") else re.compile(line, re.I)))
+    literal = set(private_strings(details))
+    literal.add(Path.home().name)
+    literal |= {e.split("@", 1)[1] for e in details.get("app_emails") or [] if "@" in e}
+    found += [(s, re.compile(re.escape(s), re.I)) for s in sorted(literal) if len(s) >= 3]
+    return found
+
+
+def scan(data: bytes, patterns: list[tuple[str, re.Pattern]], allowed: list[str]) -> dict[str, set[str]]:
+    """Every match, read as single bytes and as UTF-16 from both even and odd offsets, with 30 characters
+    either side. A match whose surroundings contain an allowed snippet doesn't count."""
+    texts = [data.decode("latin-1"), data.decode("utf-16-le", "ignore"), data[1:].decode("utf-16-le", "ignore")]
+    hits: dict[str, set[str]] = {}
+    for label, rx in patterns:
+        for text in texts:
+            for m in rx.finditer(text):
+                around = re.sub(r"[^\x20-\x7e]", ".", text[max(0, m.start() - 30):m.end() + 30])
+                if not any(a in around for a in allowed):
+                    hits.setdefault(label, set()).add(around)
+    return hits
+
+
+def scan_targets() -> list[Path]:
+    """The program itself, not the installer, whose payload is compressed, and the web files, which the
+    program holds compressed too."""
+    files = [EXE] + sorted(p for p in FRONTEND.rglob("*") if p.is_file())
+    if not EXE.is_file():
+        raise SystemExit(f"{EXE} wasn't built.")
+    return files
+
+
 def check_build_is_generic(details: dict) -> None:
-    """Scans the built program for this site's names, as UTF-8 and UTF-16, before it goes to everyone."""
-    data = (TAURI / "target" / "release" / "wa-relay-app.exe").read_bytes().lower()
-    for text in private_strings(details):
-        for encoded in (text.lower().encode(), text.lower().encode("utf-16-le")):
-            if encoded in data:
-                raise SystemExit("The build contains one of this site's private names. Not publishing it to GitHub.")
+    """Nothing private may reach a build for everyone. Prints what it looked at and what it found."""
+    patterns = scan_patterns(details)
+    if not DENYLIST.is_file():
+        print(f"Note: no {DENYLIST.name}, so only this site's names and this PC's user name are checked.")
+    allowed = [line.strip() for line in SCAN_ALLOW.read_text(encoding="utf-8").splitlines() if line.strip()] \
+        if SCAN_ALLOW.is_file() else []
+    bad = 0
+    files = scan_targets()
+    for path in files:
+        hits = scan(path.read_bytes(), patterns, allowed)
+        for label, where in hits.items():
+            bad += 1
+            print(f"PRIVATE  {path.relative_to(ROOT)}: {label!r} x{len(where)}, e.g. {sorted(where)[:3]}")
+    print(f"Scanned {len(files)} files for {len(patterns)} private patterns: {'clean' if not bad else f'{bad} found'}.")
+    if bad:
+        raise SystemExit("The build contains private names or paths. Not publishing it to GitHub.")
 
 
 def feed_repo() -> str | None:
@@ -241,6 +313,8 @@ def main() -> int:
     details = site()
     env = dict(os.environ)
     env.pop("WA_DEFAULT_RELAY", None)
+    env.pop("RUSTFLAGS", None)
+    env["CARGO_ENCODED_RUSTFLAGS"] = remap_flags()
     if args.bake_relay:
         if args.skip_build:
             raise SystemExit("--bake-relay needs a fresh build.")
@@ -259,6 +333,9 @@ def main() -> int:
     except ValueError as e:
         raise SystemExit(f"Not publishing: {e}.") from e
     check_rejects_tampering(data, sig_b64, pubkey, version)
+    if not args.bake_relay and args.github != "skip":
+        # Before dist, so a build that can't go to GitHub doesn't use up its version number.
+        check_build_is_generic(details)
     target = publish(installer, sig, version, step=args.step)
     print(f"Published {target.name}, {target.stat().st_size} bytes{' as a step release' if args.step else ''}")
     print(f"SHA-256 {hashlib.sha256(target.read_bytes()).hexdigest().upper()}")
