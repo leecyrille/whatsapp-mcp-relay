@@ -1120,6 +1120,25 @@ func (a *App) buildMediaMessage(path string, meta uploadMeta) (*waE2E.Message, e
 	head := make([]byte, 512)
 	n, _ := f.Read(head)
 	kind, mimeType := detectKind(meta.Kind, meta.Filename, head[:n])
+	if kind == "video" {
+		if fixed, info := prepareVideo(path); fixed != path {
+			defer os.Remove(fixed)
+			g, err := os.Open(fixed)
+			if err != nil {
+				return nil, err
+			}
+			defer g.Close()
+			f = g
+			if info.Width > 0 && info.Height > 0 {
+				meta.Width, meta.Height = info.Width, info.Height
+			}
+			if info.Seconds > 0 {
+				meta.Seconds = info.Seconds
+			}
+		} else if meta.Seconds == 0 {
+			meta.Seconds = info.Seconds
+		}
+	}
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}

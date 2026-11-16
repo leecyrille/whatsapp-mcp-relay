@@ -244,6 +244,19 @@ func sendWhatsAppMessage(client *whatsmeow.Client, recipient string, message str
 			mimeType = "application/octet-stream"
 		}
 
+		var video videoInfo
+		if mediaType == whatsmeow.MediaVideo {
+			var fixed string
+			if fixed, video = prepareVideo(mediaPath); fixed != mediaPath {
+				data, err := os.ReadFile(fixed)
+				_ = os.Remove(fixed)
+				if err != nil {
+					return false, fmt.Sprintf("Error reading converted video: %v", err)
+				}
+				mediaData, mimeType = data, "video/mp4"
+			}
+		}
+
 		// Upload media to WhatsApp servers
 		resp, err := client.Upload(context.Background(), mediaData, mediaType)
 		if err != nil {
@@ -303,6 +316,10 @@ func sendWhatsAppMessage(client *whatsmeow.Client, recipient string, message str
 				FileEncSHA256: resp.FileEncSHA256,
 				FileSHA256:    resp.FileSHA256,
 				FileLength:    &resp.FileLength,
+				StreamingSidecar: resp.StreamingSidecar,
+				Width:         positive(video.Width),
+				Height:        positive(video.Height),
+				Seconds:       positive(video.Seconds),
 			}
 		case whatsmeow.MediaDocument:
 			msg.DocumentMessage = &waProto.DocumentMessage{
@@ -662,6 +679,11 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 	}
 	serverAddr := fmt.Sprintf("127.0.0.1:%d", port)
 	fmt.Printf("Starting REST API server on %s...\n", serverAddr)
+	if exe := ffmpegPath(); exe != "" {
+		fmt.Printf("Videos are made phone-ready with %s\n", exe)
+	} else {
+		fmt.Println("ffmpeg not found: videos are sent unchanged and may not play on phones (set WA_FFMPEG)")
+	}
 
 	// Run server in a goroutine so it doesn't block
 	go func() {

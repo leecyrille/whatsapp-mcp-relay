@@ -64,6 +64,7 @@ type fakeWA struct {
 	picCalls     []string
 	lastExisting string
 	uploads      int
+	lastUpload   []byte
 }
 
 func (f *fakeWA) ProfilePicture(ctx context.Context, jid types.JID, existingID string) (*types.ProfilePictureInfo, error) {
@@ -165,6 +166,7 @@ func (f *fakeWA) Upload(ctx context.Context, r io.Reader, t whatsmeow.MediaType)
 	data, _ := io.ReadAll(r)
 	f.mu.Lock()
 	f.uploads++
+	f.lastUpload = data
 	f.mu.Unlock()
 	return whatsmeow.UploadResponse{
 		URL: "https://mmg.example/x", DirectPath: "/x", MediaKey: []byte("k"), FileEncSHA256: []byte("e"),
