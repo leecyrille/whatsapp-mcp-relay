@@ -34,6 +34,10 @@ None of the real config files belong in a repository: they hold your domain, log
   put group chats whose name matches a pattern into one of them (`name_rule` in `relay.json`).
 - The list is newest first. An unread chat out of view lights that edge of the list; a click scrolls to it.
 - A group with no name shows its members' names, as WhatsApp does.
+- Double-click a person's picture anywhere (chat list, chat header, a sender in a group, Contacts) to open their
+  contact card to edit, with their picture big at the top. Click the picture for full-screen. Someone with no card
+  gets a new one filled in with their name and number. The full-size picture needs a bridge that keeps it
+  (`/api/app/picture/full`); otherwise the small one shows.
 - Notifications, a tray icon, start with Windows, and quiet automatic updates.
 - Optional: a Claude panel that runs jobs on the home PC, where every action that can change anything waits for your
   approval in the app, and Claude sorting chats into your groups. Both need `wa-runner` running on the home PC with

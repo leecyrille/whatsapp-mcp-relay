@@ -221,6 +221,7 @@ var bridgeRoutes = map[string]string{
 	"GET /api/media":                "/api/app/media",
 	"GET /api/pictures":             "/api/app/pictures",
 	"GET /api/picture":              "/api/app/picture",
+	"GET /api/picture/full":         "/api/app/picture/full",
 	"GET /api/picture/group-access": "/api/app/picture/group-access",
 	"GET /api/group/members":        "/api/app/group/members",
 	"DELETE /api/picture/own":       "/api/app/picture/own",

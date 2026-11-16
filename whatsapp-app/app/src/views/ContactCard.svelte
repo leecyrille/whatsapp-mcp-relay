@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { api, errorText, type Card, type CardChange, type LinkSuggestion, type Labeled } from "../lib/api";
+  import { api, avatarFullUrl, errorText, type Card, type CardChange, type LinkSuggestion, type Labeled } from "../lib/api";
   import { toast, ui } from "../lib/state.svelte";
   import Avatar from "../lib/Avatar.svelte";
 
@@ -39,6 +39,14 @@
     copy.name = { prefix: "", given: "", middle: "", family: "", suffix: "", ...c.name };
     return copy;
   }
+
+  // The person's own picture at the top, big: the full-size one when the home PC has it. A person's chat
+  // comes before any group the card is linked to.
+  const pictureJid = $derived(draft.links?.find((l) => !l.endsWith("@g.us")) ?? open.jid ?? "");
+  const pictureVersion = $derived(ui.pictures.versions[pictureJid] ?? 0);
+  let pictureFailed = $state("");
+  let zoomed = $state(false);
+  const pictureName = $derived(draft.display || open.name || "?");
 
   function nameOf(jid: string): string {
     return ui.chats.find((c) => c.jid === jid)?.name ?? `+${jid.split("@")[0]}`;
@@ -163,12 +171,26 @@
   onMount(load);
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && !busy && onclose()} />
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key !== "Escape") return;
+    if (zoomed) zoomed = false;
+    else if (!busy) onclose();
+  }}
+/>
 
 <div class="scrim">
   <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="card-title">
+    <div class="portrait">
+      {#if pictureJid && pictureFailed !== `${pictureJid}:${pictureVersion}`}
+        <button class="big" onclick={() => (zoomed = true)} title="Show full-screen" aria-label="Show {pictureName}'s picture full-screen">
+          <img src={avatarFullUrl(pictureJid, pictureVersion)} alt="{pictureName}'s picture" draggable="false" onerror={() => (pictureFailed = `${pictureJid}:${pictureVersion}`)} />
+        </button>
+      {:else}
+        <Avatar name={pictureName} jid="" size={168} fill={pictureJid ? undefined : "var(--faint)"} opensCard={false} />
+      {/if}
+    </div>
     <header>
-      <Avatar name={draft.display || open.name || "?"} jid={draft.links?.[0] ?? ""} size={44} />
       <div class="head">
         <h3 id="card-title">{card ? draft.display || "Contact card" : "New contact card"}</h3>
         <p class="note">Kept on your home PC and shared by all your computers. It doesn't change WhatsApp or your phone, and it doesn't sync to your phone's contacts.</p>
@@ -252,7 +274,7 @@
           <p class="note">The card's name shows for everyone linked here, in WA Relay and the connector.</p>
           {#each draft.links ?? [] as jid (jid)}
             <div class="linked">
-              <Avatar name={nameOf(jid)} jid={jid} size={28} />
+              <Avatar name={nameOf(jid)} jid={jid} size={28} opensCard={false} />
               <span>{nameOf(jid)} <span class="note">{jid.split("@")[0]}</span></span>
               <button type="button" class="btn" onclick={() => unlink(jid)}>Unlink</button>
             </div>
@@ -262,7 +284,7 @@
             {#if suggestions.length === 0}<p class="note">No matches. Only exactly the same number counts as a match.</p>{/if}
             {#each suggestions as s (s.jid)}
               <div class="linked">
-                <Avatar name={s.name || s.jid} jid={s.jid} size={28} />
+                <Avatar name={s.name || s.jid} jid={s.jid} size={28} opensCard={false} />
                 <span>{s.name || `+${s.jid.split("@")[0]}`} <span class="note">{s.why}</span></span>
                 {#if s.linked_to}
                   <span class="note">On {s.linked_to}'s card</span>
@@ -299,7 +321,63 @@
   </div>
 </div>
 
+{#if zoomed}
+  <!-- Full-screen: a click anywhere or Escape closes it, and the card stays open underneath. -->
+  <div class="zoom" role="dialog" aria-modal="true" aria-label="{pictureName}'s picture">
+    <button class="zoom-close" onclick={() => (zoomed = false)} aria-label="Close the picture">
+      <img src={avatarFullUrl(pictureJid, pictureVersion)} alt="{pictureName}'s picture, full-screen" draggable="false" />
+    </button>
+  </div>
+{/if}
+
 <style>
+  .portrait {
+    flex: none;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 12px;
+  }
+  .big {
+    width: 168px;
+    height: 168px;
+    border-radius: 50%;
+    overflow: hidden;
+    padding: 0;
+    cursor: zoom-in;
+    box-shadow: var(--shadow);
+  }
+  .big img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .big:focus-visible {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .zoom {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgb(0 0 0 / 0.85);
+  }
+  .zoom-close {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    cursor: zoom-out;
+  }
+  .zoom-close img {
+    max-width: 100%;
+    max-height: 100%;
+    width: min(100%, calc(100vh - 48px));
+    aspect-ratio: 1;
+    object-fit: contain;
+    border-radius: 8px;
+  }
   .scrim {
     position: fixed;
     inset: 0;

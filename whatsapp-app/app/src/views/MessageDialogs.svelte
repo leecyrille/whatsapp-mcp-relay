@@ -94,7 +94,7 @@
           {@const on = chosen.includes(c.jid)}
           <label class="chat" class:off={!on && chosen.length >= FORWARD_MAX}>
             <input type="checkbox" checked={on} disabled={!on && chosen.length >= FORWARD_MAX} onchange={() => toggle(c.jid)} />
-            <Avatar name={c.name} jid={c.jid} isGroup={c.is_group} size={28} />
+            <Avatar name={c.name} jid={c.jid} isGroup={c.is_group} size={28} opensCard={false} />
             <span>{c.name}</span>
           </label>
         {/each}

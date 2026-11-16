@@ -438,7 +438,7 @@
             onmousemove={() => (selected = i)}
             onclick={() => void choose(person)}
           >
-            <Avatar name={person.name} jid={person.person} size={28} />
+            <Avatar name={person.name} jid={person.person} size={28} opensCard={false} />
             <span class="option-name">{person.name}</span>
           </button>
         {/each}

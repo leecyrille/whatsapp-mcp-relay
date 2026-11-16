@@ -41,6 +41,7 @@ const (
 	maxPictureBytes  = 10 << 20
 	maxPicturePixels = 20_000_000
 	pictureSize      = 256
+	fullPictureSize  = 1024 // The big copy shown in contact info. WhatsApp's own full pictures are 640 px.
 	pictureQuality   = 85
 
 	lookupGap        = 5 * time.Second // At most 12 a minute.
@@ -334,10 +335,14 @@ func (p *Pictures) SetOwn(jid string, raw []byte) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	full, fullErr := cleanPictureSized(raw, fullPictureSize)
 	p.mu.Lock()
 	if err := writeFileAtomic(p.file(jid, "own"), clean); err != nil {
 		p.mu.Unlock()
 		return 0, err
+	}
+	if fullErr == nil {
+		_ = writeFileAtomic(p.file(jid, "own-full"), full)
 	}
 	entry := p.entryLocked(jid)
 	entry.Own = true
@@ -358,6 +363,7 @@ func (p *Pictures) RemoveOwn(jid string) int64 {
 		return 0
 	}
 	_ = os.Remove(p.file(jid, "own"))
+	_ = os.Remove(p.file(jid, "own-full"))
 	entry.Own = false
 	entry.Version = p.nextVersionLocked()
 	version := entry.Version
@@ -396,6 +402,31 @@ func (p *Pictures) Read(jid string, now time.Time) (data []byte, version int64, 
 		return nil, entry.Version, !entry.Own
 	}
 	return raw, entry.Version, stale
+}
+
+// ReadFull returns the big copy of the picture that Read would show, or nil when there isn't one. It never
+// asks WhatsApp; missingWA says the WhatsApp picture is here but was saved before big copies were kept.
+func (p *Pictures) ReadFull(jid string) (data []byte, version int64, missingWA bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry := p.entries[jid]
+	if entry == nil {
+		return nil, 0, false
+	}
+	kind := ""
+	switch {
+	case entry.Own:
+		kind = "own-full"
+	case entry.WA:
+		kind = "wa-full"
+	default:
+		return nil, entry.Version, false
+	}
+	raw, err := os.ReadFile(p.file(jid, kind))
+	if err != nil {
+		return nil, entry.Version, entry.WA && !entry.Own
+	}
+	return raw, entry.Version, false
 }
 
 // Enqueue asks for a lookup. The newest request goes first, because that's what's on screen now, and old
@@ -493,6 +524,10 @@ func (p *Pictures) lookup(ctx context.Context, jid string) {
 	existing := ""
 	if entry := p.entries[jid]; entry != nil && entry.WA {
 		existing = entry.WAID
+		// A picture saved before big copies were kept is downloaded once more, so the big copy exists too.
+		if _, err := os.Stat(p.file(jid, "wa-full")); err != nil {
+			existing = ""
+		}
 	}
 	p.mu.Unlock()
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -526,10 +561,14 @@ func (p *Pictures) lookup(ctx context.Context, jid string) {
 		p.storeNone(jid) // A picture that won't decode is treated as no picture, and retried in a few days.
 		return
 	}
+	full, fullErr := cleanPictureSized(raw, fullPictureSize)
 	p.mu.Lock()
 	if err := writeFileAtomic(p.file(jid, "wa"), clean); err != nil {
 		p.mu.Unlock()
 		return
+	}
+	if fullErr == nil {
+		_ = writeFileAtomic(p.file(jid, "wa-full"), full)
 	}
 	entry := p.entryLocked(jid)
 	entry.WA, entry.WAID, entry.Checked = true, info.ID, time.Now().Unix()
@@ -548,6 +587,7 @@ func (p *Pictures) storeNone(jid string) {
 	removed := entry.WA
 	if removed {
 		_ = os.Remove(p.file(jid, "wa"))
+		_ = os.Remove(p.file(jid, "wa-full"))
 		entry.Version = p.nextVersionLocked()
 	}
 	entry.WA, entry.WAID, entry.Checked = false, "", time.Now().Unix()
@@ -670,6 +710,29 @@ func (a *App) handlePicture(w http.ResponseWriter, r *http.Request) {
 		if needsLookup {
 			writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "state": "looking"})
 			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Picture-Version", fmt.Sprint(version))
+	_, _ = w.Write(data)
+}
+
+// handlePictureFull serves the big copy for contact info. 204 means there's no big copy yet: the app shows
+// the small one instead. It never makes a WhatsApp lookup of its own; a picture saved before big copies were
+// kept joins the normal, rate-limited lookup queue.
+func (a *App) handlePictureFull(w http.ResponseWriter, r *http.Request) {
+	jid, ok := a.pictureJID(w, r)
+	if !ok {
+		return
+	}
+	data, version, missingWA := a.pictures.ReadFull(jid)
+	if data == nil {
+		if missingWA && a.knownChat(r.Context(), jid) {
+			a.pictures.Enqueue(jid)
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return

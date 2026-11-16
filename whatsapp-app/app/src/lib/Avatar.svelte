@@ -12,7 +12,8 @@
     editable = false,
     fill,
     ink,
-  }: { name: string; jid: string; isGroup?: boolean; size?: number; editable?: boolean; fill?: string; ink?: string } = $props();
+    opensCard = true,
+  }: { name: string; jid: string; isGroup?: boolean; size?: number; editable?: boolean; fill?: string; ink?: string; opensCard?: boolean } = $props();
 
   // Square for a group and round for a person, wherever an avatar appears.
   const group = $derived(isGroup || jid.endsWith("@g.us"));
@@ -23,6 +24,15 @@
   let failed = $state("");
 
   let menu = $state<{ x: number; y: number } | null>(null);
+
+  // A double-click on a person's picture opens their contact card, wherever it shows. A single click does
+  // whatever it did before, since the first click of a double-click still lands. Groups have no card.
+  function openCard(e: MouseEvent) {
+    if (!opensCard || group || !jid) return;
+    e.stopPropagation();
+    menu = null;
+    ui.card = { jid, name: unnamed ? undefined : name };
+  }
   const own = $derived(ui.pictures.own.includes(jid));
 
   // What WhatsApp says about this group's real photo. Null while asking, and anything unsure is a no.
@@ -122,7 +132,8 @@
 </script>
 
 {#snippet face()}
-  <div class="avatar" class:group style:width="{size}px" style:height="{size}px" style:background={fill ?? avatarColor(jid)} style:color={ink} style:font-size="{Math.round(size * 0.36)}px">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div ondblclick={openCard} class="avatar" class:group style:width="{size}px" style:height="{size}px" style:background={fill ?? avatarColor(jid)} style:color={ink} style:font-size="{Math.round(size * 0.36)}px">
     {#if group}
       <Icon name="people" size={Math.round(size * 0.52)} />
     {:else if unnamed}

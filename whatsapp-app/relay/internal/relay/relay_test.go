@@ -484,6 +484,7 @@ func TestPictureRoutesReachTheBridgeAndNeedTheApp(t *testing.T) {
 	for _, tc := range []struct{ method, path, want string }{
 		{"GET", "/api/pictures", "/api/app/pictures"},
 		{"GET", "/api/picture?jid=1@g.us", "/api/app/picture"},
+		{"GET", "/api/picture/full?jid=1@s.whatsapp.net", "/api/app/picture/full"},
 		{"POST", "/api/picture/own?jid=1@g.us", "/api/app/picture/own"},
 		{"DELETE", "/api/picture/own?jid=1@g.us", "/api/app/picture/own"},
 		{"GET", "/api/picture/group-access?jid=1@g.us", "/api/app/picture/group-access"},

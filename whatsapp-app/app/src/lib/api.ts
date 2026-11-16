@@ -308,6 +308,8 @@ export const api = {
 };
 
 export const avatarUrl = (jid: string, version: number) => `http://wamedia.localhost/avatar/${jid}?v=${version}`;
+/** The same picture at full size, or the small one when the home PC has no bigger one. */
+export const avatarFullUrl = (jid: string, version: number) => `http://wamedia.localhost/avatar-full/${jid}?v=${version}`;
 export const thumbUrl = (rowid: number) => `http://wamedia.localhost/thumb/${rowid}`;
 export const fileUrl = (rowid: number) => `http://wamedia.localhost/file/${rowid}`;
 export const localUrl = (token: string) => `http://wamedia.localhost/local/${token}`;

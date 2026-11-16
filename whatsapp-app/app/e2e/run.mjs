@@ -2574,6 +2574,120 @@ try {
     check("and so does its row in the list", !!(await until(() => page.locator(".side .row.abs .name", { hasText: label }).first().isVisible())));
   }
 
+  // A double-click on a person's picture opens their contact card to edit, with the picture big at the top.
+  // A single click does what it always did.
+  {
+    const chats = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("chat_list"));
+    const nameOf = (jid) => chats.find((c) => c.jid === jid)?.name ?? "";
+    const chatsTab = () => page.getByRole("button", { name: "Chats", exact: true }).click();
+    const card = page.locator(".dialog[aria-labelledby='card-title']");
+    const big = card.locator(".portrait .big img");
+    const bigWidth = () => big.evaluate((img) => (img.complete ? img.naturalWidth : 0)).catch(() => 0);
+    const listRow = (jid) => page.locator(".side .row", { hasText: nameOf(jid) }).first();
+    const showRow = async (jid) => {
+      await chatsTab();
+      await page.locator("#search").fill(nameOf(jid));
+      await page.locator(".results .row", { hasText: nameOf(jid) }).first().click();
+      await page.locator("#search").fill("");
+    };
+
+    await control("full-picture", { jid: DM, full: true });
+    await showRow(DM2);
+    // The list only draws rows near the view, so bring this one into it, on the All tab.
+    await page.getByRole("tab", { name: /^All/ }).first().click();
+    await page.evaluate(async (n) => {
+      const all = await window.__TAURI_INTERNALS__.invoke("chat_list");
+      const list = document.querySelector(".side .list");
+      const at = all.findIndex((c) => c.name === n);
+      if (list && at >= 0) list.scrollTop = Math.max(0, at * 70 - 140);
+    }, nameOf(DM));
+    await until(() => listRow(DM).isVisible());
+    await listRow(DM).locator(".avatar").dblclick();
+    check("bigpic: double-clicking a person's picture in the chat list opens their card", !!(await until(() => card.isVisible())));
+    check("bigpic: the single click still opened their chat", (await page.locator(".convo .title .name").innerText()) === nameOf(DM));
+    check("bigpic: the card's picture is the full-size one", !!(await until(async () => (await bigWidth()) === 64)), String(await bigWidth()));
+    check("bigpic: it was asked for at full size", ((await relayLog()).fullPictureGets ?? []).includes(DM));
+    check("bigpic: it shows big", (await card.locator(".portrait .big").evaluate((b) => Math.round(b.getBoundingClientRect().width))) >= 160);
+    await page.screenshot({ path: path.join(shotDir, "70-card-big-picture.png") });
+    await card.locator(".portrait .big").click();
+    const zoom = page.locator(".zoom");
+    check("bigpic: clicking it shows it full-screen", !!(await until(() => zoom.isVisible())));
+    const zoomedSize = await zoom.locator("img").evaluate((img) => Math.round(img.getBoundingClientRect().width));
+    check("bigpic: full-screen fills most of the window", zoomedSize >= 400, String(zoomedSize));
+    await page.screenshot({ path: path.join(shotDir, "71-picture-full-screen.png") });
+    await page.keyboard.press("Escape");
+    check("bigpic: Escape closes the full-screen picture and leaves the card open", !!(await until(async () => (await zoom.count()) === 0)) && (await card.isVisible()));
+    await card.locator(".portrait .big").click();
+    await zoom.click();
+    check("bigpic: a click closes it too", !!(await until(async () => (await zoom.count()) === 0)) && (await card.isVisible()));
+
+    // It's the editor: a change saves through the same path as Contacts.
+    await card.getByLabel("Company", { exact: true }).fill("Made-up Plumbing Co");
+    const savesBefore = ((await relayLog()).cards ?? []).length;
+    await card.getByRole("button", { name: "Save", exact: true }).click();
+    const saved = await until(async () => {
+      const all = (await relayLog()).cards ?? [];
+      return all.length > savesBefore ? all.at(-1) : null;
+    });
+    check("bigpic: saving goes to the home PC's cards, linked to that person", saved?.path === "/api/cards/save" && saved.body.card.company === "Made-up Plumbing Co" && saved.body.card.links.includes(DM), JSON.stringify(saved));
+    check("bigpic: and the card closes", !!(await until(async () => (await card.count()) === 0)));
+
+    // The conversation header's picture: double-click opens the card, not the picture menu.
+    await page.locator(".convo header .avatar").first().dblclick();
+    check("bigpic: double-clicking the chat header's picture opens the same card, as saved", !!(await until(async () => (await card.isVisible()) && (await card.getByLabel("Company", { exact: true }).inputValue()) === "Made-up Plumbing Co")));
+    check("bigpic: and the picture menu isn't left open", (await page.locator(".menu[role='menu']").count()) === 0);
+    await card.getByRole("button", { name: "Cancel" }).click();
+
+    // A person with no card and no picture: a new card, filled in, with big initials.
+    const pictures = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("pictures_get"));
+    const cards = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("cards_get"));
+    const bare = chats.find((c) => !c.is_group && c.jid.endsWith("@s.whatsapp.net") && !(pictures.pictures ?? {})[c.jid] && !cards.cards.some((k) => k.links?.includes(c.jid)) && !c.name.startsWith("+"));
+    if (bare) {
+      await showRow(bare.jid);
+      await page.locator(".convo header .avatar").first().dblclick();
+      check("bigpic: someone with no card gets a new one to fill in", !!(await until(async () => (await card.isVisible()) && (await card.locator("#card-title").innerText()) === "New contact card")));
+      check("bigpic: filled in with their name and number", (await card.getByLabel("Name shown").inputValue()) === bare.name && (await card.locator("input").evaluateAll((els, v) => els.some((e) => e.value === v), "+" + bare.jid.split("@")[0])));
+      check("bigpic: with no picture, big initials instead", !!(await until(async () => (await card.locator(".portrait .avatar").count()) === 1 && (await card.locator(".portrait .big").count()) === 0)) && (await card.locator(".portrait .avatar").evaluate((a) => Math.round(a.getBoundingClientRect().width))) >= 160);
+      await card.getByRole("button", { name: "Cancel" }).click();
+    } else {
+      check("bigpic: found a made-up person with no card and no picture", false);
+    }
+
+    // A picture whose full size the home PC doesn't have: the small one, still big.
+    await control("full-picture", { jid: DM2, full: false });
+    await showRow(DM2);
+    await page.locator(".convo header .avatar").first().dblclick();
+    check("bigpic: without a full-size one, the small picture shows instead", !!(await until(async () => (await card.isVisible()) && (await bigWidth()) === 2)), String(await bigWidth()));
+    await page.keyboard.press("Escape");
+    check("bigpic: Escape closes the card", !!(await until(async () => (await card.count()) === 0)));
+
+    // A sender's picture in a group chat.
+    await showRow(GROUP);
+    // A sender the app knows: an old message with no known sender has no card to open.
+    const sender = page.locator(".convo .row .face:not([title]) .avatar").first();
+    await until(() => sender.isVisible());
+    await sender.dblclick();
+    check("bigpic: double-clicking a sender's picture in a group opens their card", !!(await until(() => card.isVisible())));
+    await card.getByRole("button", { name: "Cancel" }).click();
+
+    // A group's own picture has no card, and the click still opens the group.
+    await page.locator("#search").fill(nameOf(GROUP));
+    await page.locator(".results .row", { hasText: nameOf(GROUP) }).first().locator(".avatar").dblclick();
+    await page.locator("#search").fill("");
+    await sleep(500);
+    check("bigpic: a group's picture opens no card", (await card.count()) === 0);
+    check("bigpic: and its click still opens the group", (await page.locator(".convo .title .name").innerText()) === nameOf(GROUP));
+
+    // The Contacts page's pictures too.
+    await page.getByRole("button", { name: "Contacts", exact: true }).click();
+    const contactRow = page.locator(".page[aria-label='Contacts'] .row", { hasText: nameOf(DM) }).first();
+    await until(() => contactRow.isVisible());
+    await contactRow.locator(".avatar").dblclick();
+    check("bigpic: double-clicking a picture in Contacts opens the card", !!(await until(async () => (await card.isVisible()) && (await card.getByLabel("Company", { exact: true }).inputValue()) === "Made-up Plumbing Co")));
+    await card.getByRole("button", { name: "Cancel" }).click();
+    await chatsTab();
+  }
+
   // Anything unsent: Settings lists it wherever it is, and each can be opened, sent or let go. Only things that
   // can still go, and are under a day old, hold back an automatic update.
   {

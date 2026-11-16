@@ -215,6 +215,7 @@ func (a *App) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/app/group-names", a.handleGroupNames)
 	mux.HandleFunc("GET /api/app/pictures", a.handlePictureList)
 	mux.HandleFunc("GET /api/app/picture", a.handlePicture)
+	mux.HandleFunc("GET /api/app/picture/full", a.handlePictureFull)
 	mux.HandleFunc("GET /api/app/picture/group-access", a.handleGroupAccess)
 	mux.HandleFunc("POST /api/app/picture/group", a.handleGroupPhoto)
 	mux.HandleFunc("GET /api/app/group/members", a.handleGroupMembers)

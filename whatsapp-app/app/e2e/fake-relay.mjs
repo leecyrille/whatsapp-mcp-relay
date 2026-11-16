@@ -63,6 +63,9 @@ export function makeRelay({ showcase = false } = {}) {
   const threads = new Map();
   const names = new Map();
   const cards = new Map();
+  // Which pictures have a full-size original on the home PC, and a 64x64 one standing in for it.
+  const fullPictures = new Set();
+  const JPEG_64 = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCABAAEADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwCjRRRXvHiBRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFABRRRQAUUUUAFFFFAH/9k=", "base64");
   const docBytes = new Map();
   const cardLog = [];
   const mediaPolls = new Map();
@@ -346,6 +349,17 @@ export function makeRelay({ showcase = false } = {}) {
       return json(res, 200, { ok: true, jid, picture_id: "made-up", custom_showing: ownPictures.has(jid) });
     }
     if (path === "/api/pictures") return json(res, 200, { pictures: Object.fromEntries(pictures), own: [...ownPictures] });
+    // Full size, only for the pictures this test gives one. Others answer 204, as a home PC without it would.
+    if (path === "/api/picture/full") {
+      const jid = url.searchParams.get("jid");
+      log.fullPictureGets = [...(log.fullPictureGets ?? []), jid];
+      if (!pictures.has(jid) || !fullPictures.has(jid)) {
+        res.writeHead(204);
+        return res.end();
+      }
+      res.writeHead(200, { "content-type": "image/jpeg", "x-picture-version": String(pictures.get(jid)) });
+      return res.end(JPEG_64);
+    }
     if (path === "/api/picture") {
       log.pictureGets = (log.pictureGets ?? 0) + 1;
       if (!pictures.has(url.searchParams.get("jid"))) {
@@ -723,6 +737,14 @@ export function makeRelay({ showcase = false } = {}) {
       outage = body.mode;
       if (outage && outage !== "silent") for (const r of subs) r.destroy();
       return json(res, 200, {});
+    }
+    if (path === "/control/full-picture") {
+      const b = JSON.parse(String(await readBody(req)) || "{}");
+      if (!pictures.has(b.jid)) pictures.set(b.jid, Date.now());
+      if (b.full) fullPictures.add(b.jid);
+      else fullPictures.delete(b.jid);
+      publish({ type: "picture", jid: b.jid, v: pictures.get(b.jid) });
+      return json(res, 200, { ok: true });
     }
     if (path === "/control/send-results") {
       const b = JSON.parse(String(await readBody(req)) || "{}");

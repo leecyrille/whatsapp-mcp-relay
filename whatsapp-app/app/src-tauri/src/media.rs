@@ -342,6 +342,7 @@ fn serve_type(mime: &str) -> String {
 /// Handles http://wamedia.localhost/thumb/{rowid}, /file/{rowid} and /local/{token}.
 const AVATAR_MISS_KEEP: std::time::Duration = std::time::Duration::from_secs(600);
 const AVATAR_MAX_BYTES: usize = 2 << 20;
+const AVATAR_FULL_MAX_BYTES: usize = 8 << 20;
 const JPEG_START: &[u8] = &[0xFF, 0xD8, 0xFF];
 
 pub fn valid_jid(jid: &str) -> bool {
@@ -384,6 +385,52 @@ fn serve_avatar(path: &std::path::Path) -> Option<Response<Vec<u8>>> {
             .body(bytes)
             .unwrap()
     })
+}
+
+/// A person's picture at full size, for their contact card. Only asked for when a card opens, and kept per
+/// version like the small one. The home PC has it only if it kept the original when it fetched the picture;
+/// otherwise, or from an older home PC, this is the small picture.
+async fn avatar_full(st: &Arc<AppState>, jid: &str, version: i64) -> Response<Vec<u8>> {
+    if !valid_jid(jid) {
+        return respond(StatusCode::BAD_REQUEST, vec![], "text/plain");
+    }
+    let dir = st.media_dir.join("avatars-full");
+    let stem = avatar_stem(jid);
+    if version > 0 {
+        if let Some(found) = serve_avatar(&dir.join(format!("{stem}-{version}.jpg"))) {
+            return found;
+        }
+    }
+    let query: String = url::form_urlencoded::byte_serialize(jid.as_bytes()).collect();
+    let resp = match st.relay.request(reqwest::Method::GET, &format!("/api/picture/full?jid={query}")) {
+        Ok(req) => st.relay.send(req).await.ok(),
+        Err(_) => None,
+    };
+    if let Some(resp) = resp.filter(|r| r.status().as_u16() == 200) {
+        let given = resp
+            .headers()
+            .get("X-Picture-Version")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(version);
+        if let Ok(bytes) = resp.bytes().await {
+            if bytes.len() <= AVATAR_FULL_MAX_BYTES && bytes.starts_with(JPEG_START) && std::fs::create_dir_all(&dir).is_ok() {
+                let path = dir.join(format!("{stem}-{given}.jpg"));
+                if std::fs::write(&path, &bytes).is_ok() {
+                    remove_local_avatars(&dir, &stem, Some(&path));
+                    if let Some(found) = serve_avatar(&path) {
+                        return found;
+                    }
+                }
+            }
+        }
+    }
+    if version <= 0 {
+        if let Some(found) = local_avatar(&dir, &stem).and_then(|p| serve_avatar(&p)) {
+            return found;
+        }
+    }
+    avatar(st, jid, version).await
 }
 
 /// A chat's picture. Kept locally per version, so it works offline and costs the home PC nothing once
@@ -494,14 +541,18 @@ pub async fn handle(app: AppHandle, request: Request<Vec<u8>>) -> Response<Vec<u
                 Err(e) => respond(StatusCode::BAD_GATEWAY, e.into_bytes(), "text/plain"),
             }
         }
-        "avatar" => {
+        "avatar" | "avatar-full" => {
             let version = request
                 .uri()
                 .query()
                 .and_then(|q| q.strip_prefix("v="))
                 .and_then(|v| v.parse::<i64>().ok())
                 .unwrap_or(0);
-            avatar(&st, arg, version).await
+            if kind == "avatar-full" {
+                avatar_full(&st, arg, version).await
+            } else {
+                avatar(&st, arg, version).await
+            }
         }
         "local" => {
             let picked = st.picked.lock().unwrap().get(arg).cloned();
