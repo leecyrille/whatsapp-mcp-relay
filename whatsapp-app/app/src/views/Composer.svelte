@@ -12,6 +12,7 @@
   import { setDraft, unsent } from "../lib/unsent.svelte";
   import Avatar from "../lib/Avatar.svelte";
   import Icon from "../lib/Icon.svelte";
+  import EmojiPicker from "../lib/EmojiPicker.svelte";
 
   let {
     chat,
@@ -137,6 +138,35 @@
   // Attachments only live in memory, so an automatic update waits for them.
   $effect(() => setBusy("attachments", attached.length > 0));
   onDestroy(() => setBusy("attachments", false));
+
+  // The emoji picker stays open for several, as WhatsApp's does, and each goes in where the cursor was.
+  let emojiOpen = $state(false);
+  let emojiBtn = $state<HTMLButtonElement>();
+  let caret = { start: 0, end: 0 };
+
+  function toggleEmoji() {
+    if (emojiOpen) {
+      closeEmoji();
+      return;
+    }
+    caret = { start: area?.selectionStart ?? text.length, end: area?.selectionEnd ?? text.length };
+    emojiOpen = true;
+  }
+
+  function insertEmoji(emoji: string) {
+    text = text.slice(0, caret.start) + emoji + text.slice(caret.end);
+    caret = { start: caret.start + emoji.length, end: caret.start + emoji.length };
+    if (!editing) saveDraft();
+    requestAnimationFrame(grow);
+  }
+
+  function closeEmoji() {
+    emojiOpen = false;
+    void tick().then(() => {
+      area?.focus();
+      area?.setSelectionRange(caret.start, caret.end);
+    });
+  }
 
   function grow() {
     if (!area) return;
@@ -453,6 +483,12 @@
   <div class="bar">
     {#if !editing}
       <button class="icon-btn" onclick={pick} title="Send files" aria-label="Send files"><Icon name="attach" /></button>
+    {/if}
+    <button class="icon-btn" class:on={emojiOpen} bind:this={emojiBtn} onclick={toggleEmoji} title="Emoji" aria-label="Emoji" aria-expanded={emojiOpen}>
+      <Icon name="smile" />
+    </button>
+    {#if emojiOpen && emojiBtn}
+      <EmojiPicker anchor={emojiBtn} label="Emoji" onpick={insertEmoji} onclose={closeEmoji} />
     {/if}
     <textarea
       bind:this={area}

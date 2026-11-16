@@ -2574,6 +2574,99 @@ try {
     check("and so does its row in the list", !!(await until(() => page.locator(".side .row.abs .name", { hasText: label }).first().isVisible())));
   }
 
+  // Emoji: the full set in the composer and for reactions, with search, recently used and skin tones. Ones
+  // Windows can't draw still show, framed, and a flag as its letters.
+  {
+    const chats = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("chat_list"));
+    const nameOf = (jid) => chats.find((c) => c.jid === jid)?.name ?? "";
+    const open = async (jid) => {
+      await page.getByRole("button", { name: "Chats", exact: true }).click();
+      await page.locator("#search").fill(nameOf(jid));
+      await page.locator(".results .row", { hasText: nameOf(jid) }).first().click();
+      await page.locator("#search").fill("");
+      await until(async () => (await page.locator(".convo .title .name").innerText()) === nameOf(jid));
+    };
+    const box = page.locator(".composer textarea").first();
+    const picker = page.getByRole("dialog", { name: "Emoji" });
+    const cellOf = (char) => picker.locator(`.cell[data-emoji="${char}"]`);
+
+    await open(DM);
+    await box.fill("");
+    await page.locator(".composer").getByRole("button", { name: "Emoji", exact: true }).click();
+    check("emoji: the composer has an emoji button that opens the picker", !!(await until(() => picker.isVisible())));
+    check("emoji: the picker is the full set", !!(await until(async () => (await picker.locator("section[data-group]:not([data-group='Recent']) .cell").count()) >= 1900)), String(await picker.locator("section[data-group] .cell").count()));
+    const tabs = await picker.getByRole("tab").evaluateAll((t) => t.map((b) => b.getAttribute("aria-label")));
+    check("emoji: recently used first, then WhatsApp's categories", JSON.stringify(tabs) === JSON.stringify(["Recently used", "Smileys & Emotion", "People & Body", "Animals & Nature", "Food & Drink", "Travel & Places", "Activities", "Objects", "Symbols", "Flags"]), JSON.stringify(tabs));
+    check("emoji: the newest ones are there too (Emoji 16 and 17)", (await cellOf("🫩").count()) === 1 && (await cellOf("🫍").count()) === 1 && (await cellOf("🇨🇶").count()) === 1);
+    await page.screenshot({ path: path.join(shotDir, "80-emoji-picker.png") });
+    await picker.getByRole("tab", { name: "Flags" }).click();
+    check("emoji: a category tab goes to it", !!(await until(async () => (await picker.getByRole("tab", { name: "Flags" }).getAttribute("aria-selected")) === "true")));
+
+    const search = picker.getByLabel("Search emoji");
+    await search.fill("lol");
+    check("emoji: search finds by everyday words", !!(await until(() => cellOf("😂").isVisible())));
+    await cellOf("😂").click();
+    check("emoji: picking one puts it in the box", (await box.inputValue()) === "😂");
+    check("emoji: and the picker stays open for more", await picker.isVisible());
+    await search.fill("thumbs up");
+    await cellOf("👍").click();
+    await picker.getByRole("button", { name: /^Skin tone/ }).click();
+    await picker.getByRole("menuitemradio", { name: "Medium", exact: true }).click();
+    check("emoji: a skin tone applies to the ones that take one", !!(await until(() => cellOf("👍🏽").isVisible())));
+    await cellOf("👍🏽").click();
+    await search.fill("pizza");
+    check("emoji: and leaves the others as they are", !!(await until(() => cellOf("🍕").isVisible())));
+    await search.fill("");
+    check("emoji: a tone puts every person in a group of people in it", (await cellOf("🧑🏽‍🤝‍🧑🏽").count()) === 1);
+    await picker.getByRole("button", { name: /^Skin tone/ }).click();
+    await picker.getByRole("menuitemradio", { name: "Default" }).click();
+    check("emoji: they went in at the cursor, in order", (await box.inputValue()) === "😂👍👍🏽");
+    await search.fill("x");
+    await page.keyboard.press("Escape");
+    check("emoji: Escape first clears the search", (await search.inputValue()) === "" && (await picker.isVisible()));
+    await page.keyboard.press("Escape");
+    check("emoji: then closes it, back in the box", !!(await until(async () => !(await picker.isVisible()))) && (await box.evaluate((el) => el === document.activeElement)));
+    await page.locator(".composer").getByRole("button", { name: "Emoji", exact: true }).click();
+    await until(() => picker.isVisible());
+    const recent = await picker.locator("section[data-group='Recent'] .cell").evaluateAll((c) => c.slice(0, 3).map((b) => b.getAttribute("data-emoji")));
+    check("emoji: recently used come first, newest first", JSON.stringify(recent) === JSON.stringify(["👍🏽", "👍", "😂"]), JSON.stringify(recent));
+    await page.mouse.click(5, 5);
+    check("emoji: a click elsewhere closes it", !!(await until(async () => !(await picker.isVisible()))));
+    const sentBefore = (await relayLog()).sent.length;
+    await box.press("Enter");
+    check("emoji: the message sends exactly as picked", !!(await until(async () => {
+      const sent = (await relayLog()).sent;
+      return sent.length === sentBefore + 1 && sent.at(-1).text === "😂👍👍🏽";
+    })));
+
+    // Reactions: the quick row, and "+" for any emoji.
+    await control("incoming", { id: "emoji-in-1", chat: DM, text: "Made-up news 👍 ⚫🖤 🫩 🇫🇷", from_me: false, sender: DM.split("@")[0], reactions: { [DM]: "🫟" } });
+    const theirs = page.locator(".convo .row", { hasText: "Made-up news" }).last();
+    await until(() => theirs.isVisible());
+    await theirs.hover();
+    await theirs.getByRole("button", { name: "React", exact: true }).click();
+    const quick = page.getByRole("menu", { name: "React" });
+    await until(() => quick.isVisible());
+    await quick.getByRole("menuitem", { name: "More emoji" }).click();
+    const full = page.getByRole("dialog", { name: "React with any emoji" });
+    check("emoji: the reaction row's + opens every emoji", !!(await until(() => full.isVisible())));
+    await full.getByLabel("Search emoji").fill("pizza");
+    await full.locator('.cell[data-emoji="🍕"]').click();
+    const reacted = await until(async () => ((await relayLog()).react?.emoji === "🍕" ? (await relayLog()).react : null));
+    check("emoji: any emoji can be a reaction, and the picker closes", !!reacted && !(await full.isVisible()), JSON.stringify(reacted));
+
+    // What arrives always shows, whatever the picker has and whatever Windows can draw.
+    const text = theirs.locator(".text").first();
+    const shown = await text.innerText();
+    check("emoji: a message's emoji all show", ["👍", "⚫", "🖤", "🫩"].every((e) => shown.includes(e)), shown);
+    const flags = await text.locator(".emoji-flag").count();
+    check("emoji: a flag shows, as its letters where Windows can't draw it", flags === 1 ? (await text.locator(".emoji-flag").innerText()) === "FR" : shown.includes("🇫🇷"), shown);
+    const framed = await text.locator(".emoji-missing").allInnerTexts();
+    check("emoji: only emoji Windows can't draw are framed, never ones it can (grey ones included)", framed.every((f) => !["👍", "⚫", "🖤"].includes(f)), JSON.stringify(framed));
+    check("emoji: a received reaction the quick row doesn't have still shows", (await theirs.locator(".reactions").innerText()).includes("🫟"));
+    await page.screenshot({ path: path.join(shotDir, "81-emoji-received.png") });
+  }
+
   // A double-click on a person's picture opens their contact card to edit, with the picture big at the top.
   // A single click does what it always did.
   {

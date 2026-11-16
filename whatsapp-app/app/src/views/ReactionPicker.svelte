@@ -2,6 +2,8 @@
   // The quick reactions. Drawn fixed to the window, outside the message row: rows use content-visibility, which
   // clips anything they draw outside themselves, so a picker inside one was cut off by the message above.
   import { onDestroy, onMount, tick } from "svelte";
+  import EmojiPicker from "../lib/EmojiPicker.svelte";
+  import { noteUsed } from "../lib/emoji";
 
   let {
     anchor,
@@ -12,14 +14,17 @@
   }: { anchor: HTMLElement; alignRight?: boolean; current?: string; onpick: (emoji: string) => void; onclose: () => void } = $props();
 
   const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+  // The whole picker sits in here once "+" is pressed, so a click in it counts as inside.
   let el: HTMLDivElement | undefined = $state();
+  let bar: HTMLDivElement | undefined = $state();
+  let full = $state(false);
   let left = $state(-9999);
   let top = $state(-9999);
   let below = $state(false);
 
   function place() {
     const a = anchor.getBoundingClientRect();
-    const box = el?.getBoundingClientRect();
+    const box = bar?.getBoundingClientRect();
     const w = box?.width ?? 240;
     const h = box?.height ?? 40;
     // Above the button when there's room, otherwise below it, and always inside the window.
@@ -33,6 +38,8 @@
     if (el && !el.contains(e.target as Node) && !anchor.contains(e.target as Node)) onclose();
   }
   function onKey(e: KeyboardEvent) {
+    // The full picker clears its search with the first Escape, and closes with the next.
+    if (full) return;
     if (e.key === "Escape") {
       e.preventDefault();
       onclose();
@@ -47,7 +54,7 @@
   onMount(async () => {
     await tick();
     place();
-    el?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
+    bar?.querySelector<HTMLButtonElement>("button")?.focus({ preventScroll: true });
     window.addEventListener("pointerdown", outside, true);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("scroll", onScroll, true);
@@ -63,10 +70,20 @@
   });
 </script>
 
-<div class="picker" class:below role="menu" aria-label="React" bind:this={el} style:left="{left}px" style:top="{top}px">
-  {#each QUICK as emoji}
-    <button role="menuitem" onclick={() => onpick(emoji)} class:on={current === emoji}>{emoji}</button>
-  {/each}
+<div bind:this={el}>
+  {#if full}
+    <EmojiPicker {anchor} {alignRight} {current} label="React with any emoji" {onpick} {onclose} />
+  {:else}
+    <div class="picker" class:below role="menu" aria-label="React" bind:this={bar} style:left="{left}px" style:top="{top}px">
+      {#each QUICK as emoji}
+        <button role="menuitem" onclick={() => { noteUsed(emoji); onpick(emoji); }} class:on={current === emoji}>{emoji}</button>
+      {/each}
+      {#if current && !QUICK.includes(current)}
+        <button role="menuitem" onclick={() => onpick(current)} class="on" title="Your reaction">{current}</button>
+      {/if}
+      <button role="menuitem" class="more" title="More emoji" aria-label="More emoji" onclick={() => (full = true)}>+</button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -88,5 +105,11 @@
   .picker button:hover,
   .picker button.on {
     background: var(--active);
+  }
+  .picker .more {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--muted);
+    background: var(--hover);
   }
 </style>

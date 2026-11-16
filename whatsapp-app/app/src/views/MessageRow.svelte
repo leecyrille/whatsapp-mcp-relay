@@ -7,6 +7,7 @@
   import Icon from "../lib/Icon.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
   import ReactionPicker from "./ReactionPicker.svelte";
+  import { emojiPieces } from "../lib/emoji";
   import DocPreview from "./DocPreview.svelte";
   import { previewKind } from "../lib/preview";
 
@@ -178,6 +179,9 @@
   const progress = $derived(state?.total ? Math.round(((state.done ?? 0) / state.total) * 100) : null);
 </script>
 
+<!-- Text as sent, except an emoji Windows can't draw yet: a flag shows as its letters, anything else in a frame. -->
+{#snippet plain(text: string)}{#each emojiPieces(text) as piece}{#if piece.letters}<span class="emoji-flag" title="Flag {piece.letters}. Windows shows flags as letters.">{piece.letters}</span>{:else if piece.missing}<span class="emoji-missing" title="An emoji Windows can't draw yet. It shows on phones.">{piece.text}</span>{:else}{piece.text}{/if}{/each}{/snippet}
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="row" class:mine={msg.from_me} class:hl={highlighted} class:gap id="m{msg.rowid}" style:--who-light={colour?.light} style:--who-dark={colour?.dark} oncontextmenu={openMenu}>
   {#if !msg.from_me}
@@ -320,7 +324,7 @@
 
     {#if msg.text && !msg.revoked}
       <div class="text">
-        {#each parts as p}{#if p.url}<a href={p.url} onclick={(e) => link(e, p.url!)} onauxclick={(e) => e.preventDefault()}>{p.text}</a>{:else if p.mention}<span class="mention">{p.text}</span>{:else if p.bold}<b>{p.text}</b>{:else if p.italic}<i>{p.text}</i>{:else if p.strike}<s>{p.text}</s>{:else if p.code}<code>{p.text}</code>{:else}{p.text}{/if}{/each}
+        {#each parts as p}{#if p.url}<a href={p.url} onclick={(e) => link(e, p.url!)} onauxclick={(e) => e.preventDefault()}>{p.text}</a>{:else if p.mention}<span class="mention">{p.text}</span>{:else if p.bold}<b>{p.text}</b>{:else if p.italic}<i>{p.text}</i>{:else if p.strike}<s>{p.text}</s>{:else if p.code}<code>{p.text}</code>{:else}{@render plain(p.text)}{/if}{/each}
         <span class="spacer" class:edited={msg.edited}></span>
       </div>
     {/if}
@@ -338,7 +342,7 @@
     {#if reactionGroups.length}
       <div class="reactions">
         {#each reactionGroups as [emoji, count]}
-          <span>{emoji}{#if count > 1}<small>{count}</small>{/if}</span>
+          <span>{@render plain(emoji)}{#if count > 1}<small>{count}</small>{/if}</span>
         {/each}
       </div>
     {/if}
@@ -700,6 +704,26 @@
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
     user-select: none;
     z-index: 1;
+  }
+  .emoji-flag {
+    display: inline-block;
+    font-size: 0.72em;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    line-height: 1.3;
+    padding: 0 4px;
+    margin: 0 1px;
+    border-radius: 4px;
+    border: 1px solid var(--line);
+    background: var(--hover);
+    vertical-align: 0.1em;
+  }
+  .emoji-missing {
+    display: inline-block;
+    border: 1.5px dotted var(--muted);
+    border-radius: 6px;
+    padding: 0 2px;
+    line-height: 1.2;
   }
   .reactions small {
     font-size: 10.5px;

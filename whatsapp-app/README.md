@@ -34,6 +34,11 @@ None of the real config files belong in a repository: they hold your domain, log
   put group chats whose name matches a pattern into one of them (`name_rule` in `relay.json`).
 - The list is newest first. An unread chat out of view lights that edge of the list; a click scrolls to it.
 - A group with no name shows its members' names, as WhatsApp does.
+- Every Unicode emoji (up to Emoji 17.0) in the composer and for reactions: categories, search by name or
+  everyday word, recently used first, and skin tones. The list is bundled (`app/src/lib/emoji-data.json`, made by
+  `npm run emoji-data` from the MIT-licensed unicode-emoji-json and emojilib; licences in
+  `emoji-data.LICENSE.txt`) and loads only when a picker opens. An emoji Windows' font can't draw yet still shows
+  in a dotted frame, and a country flag as its letters, since Windows has no flag pictures.
 - Double-click a person's picture anywhere (chat list, chat header, a sender in a group, Contacts) to open their
   contact card to edit, with their picture big at the top. Click the picture for full-screen. Someone with no card
   gets a new one filled in with their name and number. The full-size picture needs a bridge that keeps it
