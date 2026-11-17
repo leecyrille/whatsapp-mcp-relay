@@ -219,6 +219,32 @@ def get_sender_name(sender_jid: str) -> str:
         if 'conn' in locals():
             conn.close()
 
+def media_label(message: Message) -> str:
+    """The attachment as a list shows it: document "Plan.pdf", 240 KB. Only documents carry a real file name."""
+    filename, size = "", 0
+    try:
+        conn = sqlite3.connect(MESSAGES_DB_PATH)
+        try:
+            row = conn.execute("SELECT filename, file_length FROM messages WHERE id = ? AND chat_jid = ?",
+                               (message.id, message.chat_jid)).fetchone()
+        finally:
+            conn.close()
+        if row:
+            filename, size = row[0] or "", row[1] or 0
+    except sqlite3.Error:
+        pass
+    if message.media_type != "document":
+        filename = ""
+    if not size:
+        return f'{message.media_type} "{filename}"' if filename else message.media_type
+    for unit in ("bytes", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            shown = f"{size} bytes" if unit == "bytes" else f"{size:.1f} {unit}".replace(".0 ", " ")
+            break
+        size /= 1024
+    return f'{message.media_type} "{filename}", {shown}' if filename else f"{message.media_type}, {shown}"
+
+
 def format_message(message: Message, show_chat_info: bool = True) -> None:
     """Print a single message with consistent formatting."""
     output = ""
@@ -230,7 +256,7 @@ def format_message(message: Message, show_chat_info: bool = True) -> None:
         
     content_prefix = ""
     if hasattr(message, 'media_type') and message.media_type:
-        content_prefix = f"[{message.media_type} - Message ID: {message.id} - Chat JID: {message.chat_jid}] "
+        content_prefix = f"[{media_label(message)} - Message ID: {message.id} - Chat JID: {message.chat_jid}] "
     
     try:
         sender_name = get_sender_name(message.sender) if not message.is_from_me else "Me"
