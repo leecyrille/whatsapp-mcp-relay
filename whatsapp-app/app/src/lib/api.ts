@@ -110,6 +110,17 @@ export interface Message {
   edited: boolean;
   revoked: boolean;
   reactions: Record<string, string> | null;
+  /** Who reacted, named: the user first, then by name. */
+  reactors?: Reactor[];
+}
+
+export interface Reactor {
+  jid: string;
+  /** Their one address here, for their picture and card. Empty for the user. */
+  person: string;
+  name: string;
+  you: boolean;
+  emoji: string;
 }
 
 export interface SearchHit {

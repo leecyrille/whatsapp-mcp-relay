@@ -216,8 +216,21 @@ pub struct MsgRow {
     pub edited: bool,
     pub revoked: bool,
     pub reactions: serde_json::Value,
+    /// Who reacted and with what: the user first, then by name.
+    pub reactors: Vec<Reactor>,
     /// Names for the @mentions in the text, by the digits in it.
     pub mentions: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Reactor {
+    /// The address the reaction came from, or "me".
+    pub jid: String,
+    /// The one address this person goes by here, for their picture and card. Empty for the user.
+    pub person: String,
+    pub name: String,
+    pub you: bool,
+    pub emoji: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -867,6 +880,7 @@ impl Cache {
         } else {
             serde_json::from_str(&reactions_raw).unwrap_or(serde_json::Value::Null)
         };
+        let reactors = self.reactors_of(&reactions, &chat);
         Ok(MsgRow {
             rowid: r.get(0)?,
             raw_chat: r.get(1)?,
@@ -894,7 +908,50 @@ impl Cache {
             edited: r.get::<_, i64>(22)? != 0,
             revoked: r.get::<_, i64>(23)? != 0,
             reactions,
+            reactors,
         })
+    }
+
+    /// Everyone who reacted to a message, named the way senders are. The bridge keys reactions by the address
+    /// each one came from, so one person can appear under both their number and their hidden ID; they're
+    /// listed once, with the reaction stored last in key order.
+    fn reactors_of(&self, reactions: &serde_json::Value, chat: &str) -> Vec<Reactor> {
+        let Some(map) = reactions.as_object() else { return Vec::new() };
+        let own = self.own.read().unwrap().clone();
+        let me = own.iter().filter(|j| j.ends_with("@s.whatsapp.net")).min().cloned().unwrap_or_default();
+        let mut out: Vec<Reactor> = Vec::new();
+        for (jid, emoji) in map {
+            let Some(emoji) = emoji.as_str().filter(|e| !e.is_empty()) else { continue };
+            let you = jid == "me" || own.contains(jid) || own.contains(&self.canon(jid));
+            let (person, name) = if you { (me.clone(), "You".to_string()) } else { (self.canon(jid), self.reactor_name(jid, chat)) };
+            let reactor = Reactor { jid: jid.clone(), person, name, you, emoji: emoji.to_string() };
+            match out.iter_mut().find(|r| (r.you && you) || (!you && !r.you && r.person == reactor.person)) {
+                Some(same) => *same = reactor,
+                None => out.push(reactor),
+            }
+        }
+        out.sort_by(|a, b| b.you.cmp(&a.you).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
+        out
+    }
+
+    /// A reactor's name, as senders get theirs: the user's own name for them or their card, then their profile
+    /// name (`load_maps` already puts the best of these at both of a person's addresses), then their number.
+    /// Never a number when a name is known.
+    fn reactor_name(&self, jid: &str, chat: &str) -> String {
+        let canon = self.canon(jid);
+        {
+            let names = self.names.read().unwrap();
+            let found = [jid, canon.as_str()].into_iter().find_map(|a| names.get(a).filter(|n| !n.trim().is_empty()).cloned());
+            if let Some(name) = found {
+                return name;
+            }
+        }
+        let name = self.person_name(&canon, "", "", chat);
+        if name.is_empty() {
+            "Someone".to_string()
+        } else {
+            name
+        }
     }
 
     /// Who a message is from, as one address however it arrived. One-to-one history often has no sender on
@@ -1697,6 +1754,53 @@ mod tests {
         let page = c.messages_page(GROUP, None, None, 5).unwrap();
         assert_eq!(page.iter().find(|m| m.id == "a").unwrap().sender_name, "Sample Person");
         assert_eq!(page.iter().find(|m| m.id == "b").unwrap().sender_name, "Pushy");
+    }
+
+    #[test]
+    fn reactors_are_named_like_senders_with_you_first() {
+        let (c, _d) = cache();
+        let mut m = msg("a", GROUP, "x", 10);
+        m.reactions = Some(serde_json::json!({
+            "me": "👍",
+            "77@lid": "😂",
+            PN: "❤️",
+            "15550000009@s.whatsapp.net": "🙏",
+            "88@lid": "😮",
+        }));
+        c.apply_batch(&[m], &[], None).unwrap();
+        c.set_contacts(
+            &[
+                WireContact { jid: "77@lid".into(), push_name: "Zed Pushed".into(), ..Default::default() },
+                WireContact { jid: PN.into(), full_name: "Ann Saved".into(), ..Default::default() },
+            ],
+            &[],
+        )
+        .unwrap();
+        let row = &c.messages_page(GROUP, None, None, 1).unwrap()[0];
+        let got: Vec<(&str, &str, bool)> = row.reactors.iter().map(|r| (r.name.as_str(), r.emoji.as_str(), r.you)).collect();
+        assert_eq!(
+            got,
+            vec![("You", "👍", true), ("+15550000009", "🙏", false), ("Ann Saved", "❤️", false), ("Someone", "😮", false), ("Zed Pushed", "😂", false)]
+        );
+        assert_eq!(row.reactors.iter().find(|r| r.name == "Ann Saved").unwrap().person, PN);
+    }
+
+    #[test]
+    fn a_reactor_under_both_addresses_is_listed_once_by_name() {
+        let (c, _d) = cache();
+        let mut m = msg("a", GROUP, "x", 10);
+        m.reactions = Some(serde_json::json!({ LID: "👍", PN: "❤️" }));
+        c.apply_batch(&[m], &[], None).unwrap();
+        c.set_contacts(
+            &[WireContact { jid: LID.into(), full_name: "Only On Lid".into(), ..Default::default() }],
+            &[(LID.to_string(), PN.to_string())],
+        )
+        .unwrap();
+        c.set_own(vec!["15559990000@s.whatsapp.net".into()]).unwrap();
+        let row = &c.messages_page(GROUP, None, None, 1).unwrap()[0];
+        assert_eq!(row.reactors.len(), 1);
+        assert_eq!(row.reactors[0].name, "Only On Lid");
+        assert_eq!(row.reactors[0].person, PN);
     }
 
     #[test]

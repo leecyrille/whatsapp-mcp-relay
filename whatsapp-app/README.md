@@ -39,6 +39,9 @@ None of the real config files belong in a repository: they hold your domain, log
   `npm run emoji-data` from the MIT-licensed unicode-emoji-json and emojilib; licences in
   `emoji-data.LICENSE.txt`) and loads only when a picker opens. An emoji Windows' font can't draw yet still shows
   in a dotted frame, and a country flag as its letters, since Windows has no flag pictures.
+- Who reacted: hover over a message's reactions to see everyone's names, or click them for the list, with each
+  person's picture and emoji, a tab per emoji, and you first with Click to remove. Names come from the same place
+  senders' do, so a number only shows when no name is known.
 - Double-click a person's picture anywhere (chat list, chat header, a sender in a group, Contacts) to open their
   contact card to edit, with their picture big at the top. Click the picture for full-screen. Someone with no card
   gets a new one filled in with their name and number. The full-size picture needs a bridge that keeps it

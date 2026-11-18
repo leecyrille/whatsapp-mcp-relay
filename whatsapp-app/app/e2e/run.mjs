@@ -2667,6 +2667,87 @@ try {
     await page.screenshot({ path: path.join(shotDir, "81-emoji-received.png") });
   }
 
+  // Who reacted: a hover names everyone, and a click on the reactions lists each person with their picture
+  // and emoji, the user first with a way to take theirs back. Groups and one-to-one chats alike.
+  {
+    const chats = await page.evaluate(() => window.__TAURI_INTERNALS__.invoke("chat_list"));
+    const nameOf = (jid) => chats.find((c) => c.jid === jid)?.name ?? "";
+    const open = async (jid) => {
+      await page.getByRole("button", { name: "Chats", exact: true }).click();
+      await page.locator("#search").fill(nameOf(jid));
+      await page.locator(".results .row", { hasText: nameOf(jid) }).first().click();
+      await page.locator("#search").fill("");
+      await until(async () => (await page.locator(".convo .title .name").innerText()) === nameOf(jid));
+    };
+    const reactions = {
+      me: "👍",
+      [DM]: "❤️",
+      "777777777@lid": "👍",
+      "15550000004@s.whatsapp.net": "👍",
+      "15550000009@s.whatsapp.net": "😂",
+      "4242@lid": "😮",
+    };
+    await open(GROUP);
+    await control("incoming", { id: "who-1", chat: GROUP, text: "Made-up plan for the picnic", from_me: false, sender: DM2.split("@")[0], sender_jid: DM2, push_name: "Bob", reactions });
+    const row = page.locator(".convo .row", { hasText: "Made-up plan for the picnic" }).last();
+    await until(() => row.isVisible());
+    const chips = row.getByRole("button", { name: /^Reactions:/ });
+    check("reactors: the reactions under a message are a button", (await chips.count()) === 1);
+    const tip = (await chips.getAttribute("title")) ?? "";
+    check("reactors: hovering names everyone, by emoji, the user first", tip.split("\n")[0] === "👍 You, Dana Saved (Made-up)", tip);
+    check("reactors: saved names, never a number when a name is known", tip.includes("❤️ Sample Person") && !tip.includes("+15550000001") && !tip.includes("+15550000004"), tip);
+    check("reactors: someone with no name shows their number, and a hidden ID with nothing known says Someone", tip.includes("😂 +15550000009") && tip.includes("😮 Someone"), tip);
+    check("reactors: one person under two addresses counts once", (await row.locator(".reactions").innerText()).replace(/\s/g, "").startsWith("👍2"), await row.locator(".reactions").innerText());
+
+    await chips.click();
+    const list = page.getByRole("dialog", { name: "Reactions" });
+    check("reactors: a click on them lists who reacted", !!(await until(() => list.isVisible())));
+    const names = await list.locator(".reactor b").allInnerTexts();
+    check("reactors: you first, then everyone by name", JSON.stringify(names) === JSON.stringify(["You", "+15550000009", "Dana Saved (Made-up)", "Sample Person", "Someone"]), JSON.stringify(names));
+    const emojiOf = async (name) => (await list.locator(".reactor", { has: page.locator("b", { hasText: name }) }).locator(".emoji").innerText()).trim();
+    check("reactors: each with the emoji they used", (await emojiOf("Sample Person")) === "❤️" && (await emojiOf("Someone")) === "😮" && (await emojiOf("You")) === "👍");
+    check("reactors: each with their picture", (await list.locator(".reactor .avatar").count()) === 5);
+    const tabs = await list.getByRole("tab").allInnerTexts();
+    check("reactors: a tab for all, and one per emoji with counts", tabs[0] === "All 5" && tabs.some((t) => t.replace(/\s/g, "") === "👍2"), JSON.stringify(tabs));
+    await list.getByRole("tab", { name: "❤️ 1" }).click();
+    check("reactors: an emoji's tab shows only who used it", JSON.stringify(await list.locator(".reactor b").allInnerTexts()) === JSON.stringify(["Sample Person"]));
+    await list.getByRole("tab", { name: /^All/ }).click();
+    await page.screenshot({ path: path.join(shotDir, "82-who-reacted.png") });
+    check("reactors: only your own reaction can be removed", (await list.getByRole("button", { name: "Remove your reaction" }).count()) === 1 && (await list.locator(".reactor", { has: page.locator("b", { hasText: "You" }) }).getByRole("button", { name: "Remove your reaction" }).count()) === 1);
+    await list.locator(".reactor", { has: page.locator("b", { hasText: "Sample Person" }) }).locator(".avatar").dblclick();
+    check("reactors: double-clicking someone's picture opens their card", !!(await until(() => page.locator(".dialog[aria-labelledby='card-title']").isVisible().catch(() => false))));
+    await page.keyboard.press("Escape");
+    await until(async () => !(await page.locator(".dialog[aria-labelledby='card-title']").isVisible().catch(() => false)));
+    if (!(await list.isVisible())) await chips.click();
+    await until(() => list.isVisible());
+    await page.keyboard.press("Escape");
+    check("reactors: Escape closes the list", !!(await until(async () => !(await list.isVisible()))));
+
+    await chips.click();
+    await until(() => list.isVisible());
+    const before = JSON.stringify((await relayLog()).react ?? null);
+    await list.getByRole("button", { name: "Remove your reaction" }).click();
+    const removed = await until(async () => {
+      const r = (await relayLog()).react;
+      return r && JSON.stringify(r) !== before && r.emoji === "" ? r : null;
+    });
+    check("reactors: Click to remove takes back your reaction on WhatsApp, for that message", !!removed && removed.id === "who-1" && !(await list.isVisible()), JSON.stringify(removed));
+    const { me, ...rest } = reactions;
+    await control("incoming", { id: "who-1", chat: GROUP, text: "Made-up plan for the picnic", from_me: false, sender: DM2.split("@")[0], sender_jid: DM2, push_name: "Bob", reactions: rest });
+    check("reactors: once WhatsApp confirms, you're gone from the list", !!(await until(async () => !((await chips.getAttribute("title")) ?? "").includes("You"))));
+
+    // One-to-one: the other person, named, and you.
+    await open(DM2);
+    await control("incoming", { id: "who-2", chat: DM2, text: "Made-up one-to-one news", from_me: false, sender: DM2.split("@")[0], reactions: { [DM2]: "🎉", me: "❤️" } });
+    const one = page.locator(".convo .row", { hasText: "Made-up one-to-one news" }).last();
+    await until(() => one.isVisible());
+    await one.getByRole("button", { name: /^Reactions:/ }).click();
+    await until(() => list.isVisible());
+    check("reactors: in a one-to-one chat too", JSON.stringify(await list.locator(".reactor b").allInnerTexts()) === JSON.stringify(["You", "Bob Plumber"]), JSON.stringify(await list.locator(".reactor b").allInnerTexts()));
+    await page.mouse.click(5, 5);
+    check("reactors: a click elsewhere closes it", !!(await until(async () => !(await list.isVisible()))));
+  }
+
   // A double-click on a person's picture opens their contact card to edit, with the picture big at the top.
   // A single click does what it always did.
   {

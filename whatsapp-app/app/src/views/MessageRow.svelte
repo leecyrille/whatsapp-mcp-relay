@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { api, errorText, fileUrl, thumbUrl, type Message } from "../lib/api";
+  import { api, errorText, fileUrl, thumbUrl, type Message, type Reactor } from "../lib/api";
+  import ReactorsList from "./ReactorsList.svelte";
   import { clock, duration, fileSize, segments } from "../lib/format";
   import { media, toast, ui } from "../lib/state.svelte";
   import type { PersonColour } from "../lib/people";
@@ -122,12 +123,22 @@
     return { w: Math.max(140, Math.round(w * scale)), h: Math.max(90, Math.round(h * scale)) };
   });
   const autoImage = $derived(ui.settings.auto_images && msg.size <= AUTO_IMAGE_LIMIT);
-  const reactionList = $derived(msg.reactions ? Object.values(msg.reactions) : []);
+  // Who reacted, named by the app's cache. A row from an older cache may only have the raw reactions.
+  const reactors = $derived<Reactor[]>(
+    msg.reactors ??
+      Object.entries(msg.reactions ?? {}).map(([jid, emoji]) => ({ jid, person: "", name: jid === "me" ? "You" : "Someone", you: jid === "me", emoji })),
+  );
   const reactionGroups = $derived.by(() => {
     const counts = new Map<string, number>();
-    for (const r of reactionList) counts.set(r, (counts.get(r) ?? 0) + 1);
+    for (const r of reactors) counts.set(r.emoji, (counts.get(r.emoji) ?? 0) + 1);
     return [...counts.entries()];
   });
+  // The tooltip names everyone, by emoji, as WhatsApp's hover does.
+  const reactionTip = $derived(
+    reactionGroups.map(([emoji]) => `${emoji} ${reactors.filter((r) => r.emoji === emoji).map((r) => r.name).join(", ")}`).join("\n"),
+  );
+  let whoReacted = $state(false);
+  let chips: HTMLButtonElement | undefined = $state();
 
   async function fetchThen(action: () => void) {
     try {
@@ -156,9 +167,24 @@
 
   async function react(emoji: string) {
     picker = false;
-    const mine = msg.reactions?.me === emoji;
+    whoReacted = false;
+    const mine = myReaction() === emoji;
     try {
       await api.react(msg.raw_chat, msg.id, msg.sender_jid, mine ? "" : emoji);
+    } catch (e) {
+      toast(errorText(e));
+    }
+  }
+
+  function myReaction(): string {
+    return reactors.find((r) => r.you)?.emoji ?? msg.reactions?.me ?? "";
+  }
+
+  // Taking back the user's own reaction, from the list of who reacted.
+  async function removeMine() {
+    whoReacted = false;
+    try {
+      await api.react(msg.raw_chat, msg.id, msg.sender_jid, "");
     } catch (e) {
       toast(errorText(e));
     }
@@ -340,11 +366,18 @@
     </div>
 
     {#if reactionGroups.length}
-      <div class="reactions">
+      <button
+        class="reactions"
+        bind:this={chips}
+        title={reactionTip}
+        aria-label="Reactions: {reactionTip.replace(/\n/g, '; ')}. Show who reacted"
+        aria-haspopup="dialog"
+        aria-expanded={whoReacted}
+        onclick={() => (whoReacted = !whoReacted)}
+      >
         {#each reactionGroups as [emoji, count]}
           <span>{@render plain(emoji)}{#if count > 1}<small>{count}</small>{/if}</span>
-        {/each}
-      </div>
+        {/each}      </button>
     {/if}
   </div>
 
@@ -363,7 +396,11 @@
 </div>
 
 {#if picker && !msg.revoked && smile}
-  <ReactionPicker anchor={smile} alignRight={msg.from_me} current={msg.reactions?.me ?? ""} onpick={react} onclose={() => (picker = false)} />
+  <ReactionPicker anchor={smile} alignRight={msg.from_me} current={myReaction()} onpick={react} onclose={() => (picker = false)} />
+{/if}
+
+{#if whoReacted && chips && reactors.length}
+  <ReactorsList anchor={chips} alignRight={msg.from_me} {reactors} onremove={removeMine} onclose={() => (whoReacted = false)} />
 {/if}
 
 {#if previewing}
@@ -704,6 +741,12 @@
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.22);
     user-select: none;
     z-index: 1;
+    color: var(--text);
+    line-height: inherit;
+    cursor: pointer;
+  }
+  .reactions:hover {
+    box-shadow: 0 0 0 1px var(--accent), 0 1px 3px rgb(0 0 0 / 0.22);
   }
   .emoji-flag {
     display: inline-block;
