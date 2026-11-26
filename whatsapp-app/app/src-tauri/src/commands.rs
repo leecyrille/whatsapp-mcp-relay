@@ -1,6 +1,6 @@
 //! What the UI can ask for. Reads come from the local cache, and only actions go to the home PC.
 
-use crate::db::{ChatRow, ContactRow, MsgRow, SearchHit, WireMsg};
+use crate::db::{ChatRow, ContactRow, MsgRow, PhotoStep, SearchHit, WireMsg};
 use crate::media::{self, SendRequest};
 use crate::net::{self, NetError};
 use crate::update;
@@ -102,6 +102,36 @@ pub fn messages_around(st: St<'_>, rowid: i64) -> Result<Vec<MsgRow>, String> {
     st.cache.messages_around(rowid, 80)
 }
 
+/// One photo for the viewer. `cached` says its file is already here, so showing it asks for nothing.
+#[derive(serde::Serialize)]
+pub struct Photo {
+    msg: MsgRow,
+    cached: bool,
+}
+
+#[derive(serde::Serialize)]
+pub struct PhotoSpot {
+    /// The photo asked for. With no step, what's at the given place now, or nothing if it's been deleted.
+    photo: Option<Photo>,
+    older: Option<Photo>,
+    newer: Option<Photo>,
+}
+
+/// Where the photo viewer goes next in a chat, and what's either side of it. With nothing that way, what's
+/// either side of the place given.
+#[tauri::command(async)]
+pub fn photo_spot(st: St<'_>, chat: String, step: Option<PhotoStep>, ts: i64, rowid: i64) -> Result<PhotoSpot, String> {
+    let wrap = |m: Option<MsgRow>| m.map(|msg| Photo { cached: media::file_path(&st, msg.rowid).is_file(), msg });
+    let photo = match step {
+        Some(step) => st.cache.photo_step(&chat, step, ts, rowid)?,
+        None => st.cache.message_by_rowid(rowid)?.filter(|m| !m.revoked),
+    };
+    let (ts, rowid) = photo.as_ref().map_or((ts, rowid), |m| (m.ts, m.rowid));
+    let older = st.cache.photo_step(&chat, PhotoStep::Older, ts, rowid)?;
+    let newer = st.cache.photo_step(&chat, PhotoStep::Newer, ts, rowid)?;
+    Ok(PhotoSpot { photo: wrap(photo), older: wrap(older), newer: wrap(newer) })
+}
+
 #[tauri::command(async)]
 pub fn search(st: St<'_>, query: String, limit: Option<i64>) -> Result<Vec<SearchHit>, String> {
     st.cache.search(&query, limit.unwrap_or(100).clamp(1, 500))
@@ -145,7 +175,11 @@ pub fn attention_test(app: AppHandle, st: St<'_>, action: String) -> Result<Valu
         "close" => window.close().map_err(|e| e.to_string())?,
         "show" => crate::attention::test_open(&window),
         "minimize" => crate::attention::test_minimize(&window),
-        _ => {}
+        other => match other.split_once(':').and_then(|(what, ms)| Some((what, ms.parse().ok()?))) {
+            Some(("hammer", ms)) => crate::attention::test_hammer(&app, st.inner(), ms),
+            Some(("freeze", ms)) => crate::attention::test_freeze(&app, ms),
+            _ => {}
+        },
     }
     let mut state = crate::attention::test_state(&st);
     state["visible"] = json!(window.is_visible().unwrap_or(false));
@@ -1003,7 +1037,7 @@ pub fn update_set_busy(st: St<'_>, busy: bool) {
 pub fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         auth_state, conn_state, open_login, sign_out, chat_list, messages_page, messages_after, messages_around,
-        search, set_active_chat, mark_read, send_text, react, load_older, pick_files, save_pasted, forget_token,
+        photo_spot, search, set_active_chat, mark_read, send_text, react, load_older, pick_files, save_pasted, forget_token,
         send_file, media_fetch, media_save, media_open, open_link, contacts, groups_get, group_create, group_update,
         relay_get, relay_set, group_delete, assign, claude_api, sort_start, settings_get, settings_set, cache_stats, update_state,
         update_check, update_install, update_set_busy, take_open_target, silence_state, silence_set, silence_clear, blink_set, attention_test, pictures_get, pick_picture, picture_set, picture_remove, picture_group_access, picture_group_set, whatsapp_group_create,

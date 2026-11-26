@@ -1,5 +1,6 @@
 // A stand-in for wa-relay with made-up data, for end-to-end tests of the real app. It speaks the same
 // API and records what it receives, and never touches WhatsApp or Claude.
+import { deflateSync } from "node:zlib";
 import http from "node:http";
 
 const PNG = Buffer.from(
@@ -32,11 +33,40 @@ const SHOW_GROUPS = [
   { jid: "120363555000000005@g.us", name: "Family" },
 ];
 
+/** A plain PNG of a given size, so a test can tell which made-up photo is on show. */
+function pngOf(width, height) {
+  const crc = (buf) => {
+    let c = ~0;
+    for (const b of buf) {
+      c ^= b;
+      for (let i = 0; i < 8; i++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
+    }
+    return ~c >>> 0;
+  };
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), body.length + 4);
+    return out;
+  };
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(width, 0);
+  head.writeUInt32BE(height, 4);
+  head.set([8, 2, 0, 0, 0], 8);
+  const row = Buffer.alloc(1 + width * 3, 0x8c);
+  row[0] = 0;
+  const pixels = deflateSync(Buffer.concat(Array(height).fill(row)));
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", head), chunk("IDAT", pixels), chunk("IEND", Buffer.alloc(0))]);
+}
+
 export function makeRelay({ showcase = false } = {}) {
-  const log = { requests: [], sent: [], read: [], uploads: {}, finished: [], assign: [], approvals: [], claude: [], updateChecks: 0, updateDownloads: 0 };
+  const log = { requests: [], sent: [], read: [], uploads: {}, finished: [], assign: [], approvals: [], claude: [], updateChecks: 0, updateDownloads: 0, mediaGets: [] };
   let update = null;
   let outage = "";
   const results = { drop: false, delay: 60 };
+  const mediaRules = { fail: [], slow: {} }; // made-up photos that are gone from the phone, or take a while
   let failReads = 0; // when set, /api/read answers with this status
   const pictures = new Map();
   const ownPictures = new Set();
@@ -89,6 +119,7 @@ export function makeRelay({ showcase = false } = {}) {
       status: "",
       ...m,
     };
+    if (row.thumb === true) row.thumb = THUMB;
     const at = messages.findIndex((x) => x.id === row.id && x.chat === row.chat);
     if (at >= 0) messages[at] = row;
     else messages.push(row);
@@ -650,8 +681,21 @@ export function makeRelay({ showcase = false } = {}) {
       docBytes.set(body.id, bytes);
       return json(res, 200, live({ id: body.id, chat: body.chat, text: body.caption ?? "", ts: body.ts ?? Date.now(), media: "document", filename: body.filename, mime: body.mime, size: body.size ?? bytes.length, sender: "15550000001", sender_jid: "15550000001@s.whatsapp.net" }));
     }
+    if (path === "/control/media-rules") {
+      Object.assign(mediaRules, JSON.parse(await readBody(req)));
+      return json(res, 200, {});
+    }
     if (path === "/api/media") {
       const id = url.searchParams.get("id");
+      log.mediaGets.push(id);
+      const numbered = /^(?:ph|run)-(\w+)$/.exec(id);
+      if (numbered) {
+        if (mediaRules.fail.includes(id)) return json(res, 410, { ok: false, error: "This media is no longer on the phone." });
+        if (mediaRules.slow[id]) await new Promise((r) => setTimeout(r, mediaRules.slow[id]));
+        const body = pngOf(100 + (Number(numbered[1]) || 0), 75);
+        res.writeHead(200, { "content-type": "image/png", "content-length": body.length });
+        return res.end(body);
+      }
       const polls = mediaPolls.get(id) ?? 0;
       mediaPolls.set(id, polls + 1);
       if (polls === 0) return json(res, 202, { ok: true, state: "downloading" });

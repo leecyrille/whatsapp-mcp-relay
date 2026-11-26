@@ -10,6 +10,7 @@
   import Icon from "../lib/Icon.svelte";
   import MessageRow from "./MessageRow.svelte";
   import Composer, { type Outgoing } from "./Composer.svelte";
+  import Lightbox from "./Lightbox.svelte";
   import MessageDialogs from "./MessageDialogs.svelte";
   import ChatActions from "./ChatActions.svelte";
 
@@ -64,6 +65,7 @@
   $effect(() => {
     const jid = ui.active;
     untrack(() => {
+      lightbox = null;
       members = [];
       senders = [];
       membersStale = false;
@@ -513,9 +515,7 @@
 <MessageDialogs bind:forwarding bind:deleting bind:info />
 
 {#if lightbox}
-  {#await import("./Lightbox.svelte") then { default: Lightbox }}
-    <Lightbox msg={lightbox} onclose={() => (lightbox = null)} />
-  {/await}
+  <Lightbox msg={lightbox} name={groupMode ? "" : (chat?.name ?? "")} onclose={() => (lightbox = null)} />
 {/if}
 
 <style>

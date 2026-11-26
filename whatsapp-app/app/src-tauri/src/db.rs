@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS messages (
     UNIQUE (raw_chat, id)
 );
 CREATE INDEX IF NOT EXISTS idx_msg_chat_ts ON messages (chat, ts DESC, rowid DESC);
+CREATE INDEX IF NOT EXISTS idx_msg_photos ON messages (chat, ts DESC, rowid DESC) WHERE media = 'image' AND revoked = 0;
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     text, filename, content='messages', content_rowid='rowid', tokenize='unicode61 remove_diacritics 2'
 );
@@ -306,6 +307,16 @@ pub struct SortItem {
     pub name: String,
     pub is_group: bool,
     pub snippets: Vec<String>,
+}
+
+/// Which photo of a chat to look for, from a place in it.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PhotoStep {
+    Older,
+    Newer,
+    Oldest,
+    Newest,
 }
 
 pub type DbResult<T> = Result<T, String>;
@@ -1077,6 +1088,30 @@ impl Cache {
         let newer = self.messages_after(&chat, ts, rowid, limit / 2)?;
         older.extend(newer);
         Ok(older)
+    }
+
+    /// A chat's next photo from a place in it, or its first or last one. Photos only, never deleted ones, in
+    /// the order the conversation shows them. The place doesn't have to be a photo, or still be there.
+    pub fn photo_step(&self, chat: &str, step: PhotoStep, ts: i64, rowid: i64) -> DbResult<Option<MsgRow>> {
+        // A chat opened under a hidden ID moves to its number once that's known.
+        let chat = self.canon(chat);
+        let conn = self.reader.lock().unwrap();
+        let mut stmt = conn.prepare_cached(&Self::photo_sql(step)).map_err(err)?;
+        stmt.query_row(params![chat, ts, rowid], |r| self.map_msg(r)).optional().map_err(err)
+    }
+
+    fn photo_sql(step: PhotoStep) -> String {
+        let (place, order) = match step {
+            PhotoStep::Older => ("(ts, rowid) < (?2, ?3)", "DESC"),
+            PhotoStep::Newer => ("(ts, rowid) > (?2, ?3)", "ASC"),
+            PhotoStep::Oldest => ("?2 = ?2 AND ?3 = ?3", "ASC"),
+            PhotoStep::Newest => ("?2 = ?2 AND ?3 = ?3", "DESC"),
+        };
+        format!(
+            "SELECT {} FROM messages WHERE chat = ?1 AND media = 'image' AND revoked = 0 AND {place}
+             ORDER BY ts {order}, rowid {order} LIMIT 1",
+            Self::MSG_COLUMNS
+        )
     }
 
     /// One message, by its position, for media commands.
@@ -1869,6 +1904,89 @@ mod tests {
         assert!(around.iter().any(|m| m.rowid == target.rowid));
         assert!(around.first().unwrap().ts < 1050 && around.last().unwrap().ts > 1050);
         assert!(around.windows(2).all(|w| w[0].ts <= w[1].ts), "oldest first");
+    }
+
+    fn photo(id: &str, chat: &str, ts: i64) -> WireMsg {
+        WireMsg { media: "image".into(), mime: "image/png".into(), ..msg(id, chat, "", ts) }
+    }
+
+    /// Every photo reached by stepping one way from a message until there are no more.
+    fn walk(c: &Cache, chat: &str, step: PhotoStep, from: &MsgRow) -> Vec<String> {
+        let (mut ts, mut rowid) = (from.ts, from.rowid);
+        let mut out = vec![];
+        while let Some(m) = c.photo_step(chat, step, ts, rowid).unwrap() {
+            (ts, rowid) = (m.ts, m.rowid);
+            out.push(m.id);
+            assert!(out.len() < 50, "must end");
+        }
+        out
+    }
+
+    fn find(c: &Cache, chat: &str, id: &str) -> MsgRow {
+        c.messages_page(chat, None, None, 300).unwrap().into_iter().find(|m| m.id == id).unwrap()
+    }
+
+    #[test]
+    fn photos_step_in_time_order_within_one_chat_and_stop_at_the_ends() {
+        let (c, _d) = cache();
+        // Arrival order isn't time order: older history can come in after newer messages.
+        let mut rows = vec![photo("p3", PN, 300), photo("p1", PN, 100), photo("p2", PN, 200), photo("other", GROUP, 150), msg("t", PN, "text", 250)];
+        for (id, media) in [("vid", "video"), ("sticker", "sticker"), ("doc", "document"), ("voice", "audio")] {
+            rows.push(WireMsg { media: media.into(), ..msg(id, PN, "", 210) });
+        }
+        c.apply_batch(&rows, &[], None).unwrap();
+        assert_eq!(walk(&c, PN, PhotoStep::Older, &find(&c, PN, "p3")), ["p2", "p1"]);
+        assert_eq!(walk(&c, PN, PhotoStep::Newer, &find(&c, PN, "p1")), ["p2", "p3"]);
+        assert_eq!(walk(&c, PN, PhotoStep::Newer, &find(&c, PN, "vid")), ["p3"], "from something that isn't a photo");
+        assert_eq!(walk(&c, GROUP, PhotoStep::Older, &find(&c, GROUP, "other")), Vec::<String>::new());
+        for (step, id) in [(PhotoStep::Oldest, "p1"), (PhotoStep::Newest, "p3")] {
+            assert_eq!(c.photo_step(PN, step, 0, 0).unwrap().unwrap().id, id);
+        }
+        assert!(c.photo_step("15550000099@s.whatsapp.net", PhotoStep::Newest, 0, 0).unwrap().is_none());
+    }
+
+    #[test]
+    fn photos_with_one_timestamp_are_each_reached_once() {
+        let (c, _d) = cache();
+        c.apply_batch(&(0..6).map(|i| photo(&format!("p{i}"), PN, 500)).collect::<Vec<_>>(), &[], None).unwrap();
+        assert_eq!(walk(&c, PN, PhotoStep::Older, &find(&c, PN, "p5")), ["p4", "p3", "p2", "p1", "p0"]);
+        assert_eq!(walk(&c, PN, PhotoStep::Newer, &find(&c, PN, "p0")), ["p1", "p2", "p3", "p4", "p5"]);
+    }
+
+    #[test]
+    fn deleted_photos_are_passed_over_even_from_where_one_was() {
+        let (c, _d) = cache();
+        c.apply_batch(&[photo("p1", PN, 100), photo("p2", PN, 200), photo("p3", PN, 300)], &[], None).unwrap();
+        let gone = find(&c, PN, "p2");
+        // Whether or not the deletion still says it was a photo.
+        c.apply_batch(&[WireMsg { revoked: true, ..photo("p2", PN, 200) }], &[], None).unwrap();
+        assert_eq!(walk(&c, PN, PhotoStep::Older, &find(&c, PN, "p3")), ["p1"]);
+        assert_eq!(walk(&c, PN, PhotoStep::Older, &gone), ["p1"]);
+        assert_eq!(walk(&c, PN, PhotoStep::Newer, &gone), ["p3"]);
+        c.apply_batch(&[WireMsg { revoked: true, ..msg("p3", PN, "", 300) }], &[], None).unwrap();
+        assert_eq!(c.photo_step(PN, PhotoStep::Newest, 0, 0).unwrap().unwrap().id, "p1");
+    }
+
+    #[test]
+    fn photos_under_both_of_a_persons_addresses_are_one_run() {
+        let (c, _d) = cache();
+        c.apply_batch(&[photo("a", PN, 100), photo("b", LID, 200), photo("c", PN, 300)], &[], None).unwrap();
+        let opened = find(&c, LID, "b");
+        c.set_contacts(&[], &[(LID.into(), PN.into())]).unwrap();
+        // The viewer may still hold the chat's old address.
+        assert_eq!(walk(&c, LID, PhotoStep::Older, &opened), ["a"]);
+        assert_eq!(walk(&c, PN, PhotoStep::Newer, &opened), ["c"]);
+    }
+
+    #[test]
+    fn a_photo_step_reads_only_the_photo_index() {
+        let (c, _d) = cache();
+        let conn = c.reader.lock().unwrap();
+        for step in [PhotoStep::Older, PhotoStep::Newer, PhotoStep::Oldest, PhotoStep::Newest] {
+            let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {}", Cache::photo_sql(step))).unwrap();
+            let plan: Vec<String> = stmt.query_map(params![PN, 1, 1], |r| r.get(3)).unwrap().flatten().collect();
+            assert!(plan.len() == 1 && plan[0].contains("idx_msg_photos"), "{step:?} {plan:?}");
+        }
     }
 
     #[test]

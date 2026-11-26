@@ -6,6 +6,7 @@ pub mod db;
 pub mod link;
 pub mod media;
 pub mod net;
+mod second;
 pub mod setup;
 pub mod toast;
 pub mod update;
@@ -48,7 +49,9 @@ pub struct AppState {
     pub test_toasts: std::sync::atomic::AtomicU64,
     pub picked: Mutex<HashMap<String, PathBuf>>,
     pub download_gates: Mutex<HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
-    pub tray: Mutex<Option<TrayIcon>>,
+    /// Use it through `tray` below. In an `Arc` because Tauri's own copies count themselves in a way that isn't
+    /// safe off the main thread. This one lasts as long as the app, so the icon never goes on a worker.
+    pub tray: Mutex<Option<Arc<TrayIcon>>>,
     pub attention: attention::Attention,
     pub updates: Arc<update::Updates>,
     /// Chats where the home PC had no picture to give, so scrolling doesn't keep asking.
@@ -106,22 +109,30 @@ fn load_test_overrides() {
     }
 }
 
-pub fn update_tray(app: &AppHandle, st: &AppState) {
-    let unread = st.cache.total_unread();
+/// The tray icon, with no lock held. Only for use on the main thread. Called from any other, its methods wait for the
+/// main thread, and they send Windows messages, which can run other code here before they come back. Held across
+/// one, the lock once left a worker waiting for the main thread and the main thread waiting for the lock.
+pub fn tray(st: &AppState) -> Option<Arc<TrayIcon>> {
+    st.tray.lock().unwrap().clone()
+}
+
+pub fn tray_tooltip(st: &AppState, unread: i64) -> String {
     let tooltip = match (st.link_shown(), unread) {
         ("ok" | "connecting" | "catching_up", 0) => "WA Relay".to_string(),
         ("ok" | "connecting" | "catching_up", _) => format!("WA Relay: {unread} unread"),
         _ => "WA Relay: not connected, may be out of date".to_string(),
     };
-    let tooltip = match toast::silenced_until(st) {
+    match toast::silenced_until(st) {
         Some(until) => format!("{tooltip}\nNotifications silenced until {}", toast::clock(until)),
         None => tooltip,
-    };
-    if let Some(tray) = st.tray.lock().unwrap().as_ref() {
-        let _ = tray.set_tooltip(Some(&tooltip));
     }
+}
+
+/// Something the tray shows has changed. Safe from any thread: it waits for nothing. The icon and tooltip follow on
+/// the main thread, worked out afresh then, so they end up right however many of these come at once.
+pub fn update_tray(app: &AppHandle, st: &AppState) {
     attention::refresh(st);
-    let _ = app.emit("unread", unread);
+    let _ = app.emit("unread", st.cache.total_unread());
 }
 
 pub fn show_main(app: &AppHandle) {
@@ -219,6 +230,11 @@ pub fn open_login_window(app: &AppHandle) -> tauri::Result<()> {
 pub fn run() {
     load_test_overrides();
     toast::allow_handover(&std::env::args().collect::<Vec<_>>());
+    let context = tauri::generate_context!();
+    if second::running_copy_is_stuck(&context.config().identifier) {
+        second::say_so();
+        return;
+    }
     let base_builder = tauri::Builder::default();
     // A test of two running clients needs two copies, each with its own data folder.
     let base_builder = if test_override("WA_SECOND_INSTANCE").is_some() {
@@ -269,7 +285,7 @@ pub fn run() {
         });
     app_builder
         .setup(setup)
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("failed to start")
         .run(|_app, _event| {});
 }
@@ -364,7 +380,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .build(app)?;
-    *state.tray.lock().unwrap() = Some(tray);
+    *state.tray.lock().unwrap() = Some(Arc::new(tray));
     update_tray(&handle, &state);
 
     let (dir, limit) = (media_dir, 5u64 << 30);

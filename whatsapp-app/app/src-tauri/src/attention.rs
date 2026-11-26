@@ -93,6 +93,7 @@ pub struct Attention {
     motion: AtomicBool,
     tray: Mutex<Tray>,
     taskbar: Mutex<Taskbar>,
+    tooltip: Mutex<String>,
     lit: AtomicBool,
     wake: tokio::sync::Notify,
     swaps: AtomicU64,
@@ -105,6 +106,7 @@ impl Attention {
             motion: AtomicBool::new(motion),
             tray: Mutex::new(Tray::Plain),
             taskbar: Mutex::new(Taskbar::Off),
+            tooltip: Mutex::new(String::new()),
             lit: AtomicBool::new(false),
             wake: tokio::sync::Notify::new(),
             swaps: AtomicU64::new(0),
@@ -145,8 +147,21 @@ fn tray_icon(unread: bool) -> tauri::Result<Image<'static>> {
 }
 
 fn set_tray_icon(st: &AppState, unread: bool) {
-    if let (Some(tray), Ok(icon)) = (st.tray.lock().unwrap().as_ref(), tray_icon(unread)) {
+    if let (Some(tray), Ok(icon)) = (crate::tray(st), tray_icon(unread)) {
         let _ = tray.set_icon(Some(icon));
+    }
+}
+
+fn set_tray_tooltip(st: &AppState, tooltip: String) {
+    let Some(tray) = crate::tray(st) else { return };
+    let changed = {
+        let mut shown = st.attention.tooltip.lock().unwrap();
+        let changed = *shown != tooltip;
+        shown.clone_from(&tooltip);
+        changed
+    };
+    if changed {
+        let _ = tray.set_tooltip(Some(&tooltip));
     }
 }
 
@@ -158,8 +173,10 @@ pub fn hide_window(window: &tauri::WebviewWindow) {
     }
 }
 
-/// Runs on the main thread, so window changes and tray changes happen in order.
-fn apply(app: &AppHandle, st: &AppState, unread: bool, silenced: bool) {
+/// Runs on the main thread, so window changes and tray changes happen in order. No lock is held over any of them:
+/// each can send Windows messages, which can run other code here before it comes back.
+fn apply(app: &AppHandle, st: &AppState, unread: bool, silenced: bool, tooltip: String) {
+    set_tray_tooltip(st, tooltip);
     let Some(window) = app.get_webview_window("main") else { return };
     let real = real_taskbar();
     let minimized = window.is_minimized().unwrap_or(false);
@@ -188,20 +205,13 @@ fn apply(app: &AppHandle, st: &AppState, unread: bool, silenced: bool) {
             let _ = window.show();
         }
     }
-    {
-        let mut taskbar = st.attention.taskbar.lock().unwrap();
-        // Hiding a window can end its flash, so one that's just come back always starts again.
-        if *taskbar != plan.taskbar || plan.show_minimized {
-            if real {
-                native::flash(&window, plan.taskbar);
-            }
-            *taskbar = plan.taskbar;
-        }
+    let was = std::mem::replace(&mut *st.attention.taskbar.lock().unwrap(), plan.taskbar);
+    // Hiding a window can end its flash, so one that's just come back always starts again.
+    if real && (was != plan.taskbar || plan.show_minimized) {
+        native::flash(&window, plan.taskbar);
     }
-    let mut tray = st.attention.tray.lock().unwrap();
-    if *tray != plan.tray {
-        *tray = plan.tray;
-        drop(tray);
+    let was = std::mem::replace(&mut *st.attention.tray.lock().unwrap(), plan.tray);
+    if was != plan.tray {
         st.attention.lit.store(plan.tray != Tray::Plain, Ordering::SeqCst);
         set_tray_icon(st, plan.tray != Tray::Plain);
         st.attention.wake.notify_one(); // So the loop below starts or stops its timer.
@@ -215,16 +225,18 @@ pub async fn run(app: AppHandle, st: Arc<AppState>) {
         let blinking = *st.attention.tray.lock().unwrap() == Tray::Blink;
         tokio::select! {
             _ = st.attention.wake.notified() => {
-                let unread = st.cache.total_unread() > 0;
+                let unread = st.cache.total_unread();
                 let silenced = crate::toast::silenced_until(&st).is_some();
+                let tooltip = crate::tray_tooltip(&st, unread);
                 let (handle, state) = (app.clone(), st.clone());
-                let _ = app.run_on_main_thread(move || apply(&handle, &state, unread, silenced));
+                let _ = app.run_on_main_thread(move || apply(&handle, &state, unread > 0, silenced, tooltip));
             }
             _ = tokio::time::sleep(Duration::from_millis(step)), if blinking => {
                 let state = st.clone();
                 let _ = app.run_on_main_thread(move || {
                     // Checked here, or a late step could bring the unread icon back after everything's read.
-                    if *state.attention.tray.lock().unwrap() == Tray::Blink {
+                    let blinking = *state.attention.tray.lock().unwrap() == Tray::Blink;
+                    if blinking {
                         let lit = !state.attention.lit.fetch_xor(true, Ordering::SeqCst);
                         set_tray_icon(&state, lit);
                         state.attention.swaps.fetch_add(1, Ordering::SeqCst);
@@ -233,6 +245,38 @@ pub async fn run(app: AppHandle, st: Arc<AppState>) {
             }
         }
     }
+}
+
+static HAMMER_ROUNDS: AtomicU64 = AtomicU64::new(0);
+static HAMMERS: AtomicU64 = AtomicU64::new(0);
+
+/// Everything that changes the tray, from many threads at once, for a test of whether the app survives it. It
+/// hung once: a worker waited for the main thread while holding what the main thread wanted.
+pub fn test_hammer(app: &AppHandle, st: &Arc<AppState>, ms: u64) {
+    let until = std::time::Instant::now() + Duration::from_millis(ms);
+    for n in 0..6 {
+        let (app, st) = (app.clone(), st.clone());
+        HAMMERS.fetch_add(1, Ordering::SeqCst);
+        std::thread::spawn(move || {
+            while std::time::Instant::now() < until {
+                match n {
+                    0 => drop(crate::toast::silence(&app, &st, 60)),
+                    1 => drop(crate::toast::silence_off(&app, &st)),
+                    2 => set_motion(&st, HAMMER_ROUNDS.load(Ordering::SeqCst) % 2 == 0),
+                    _ => crate::update_tray(&app, &st),
+                }
+                HAMMER_ROUNDS.fetch_add(1, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            HAMMERS.fetch_sub(1, Ordering::SeqCst);
+        });
+    }
+}
+
+/// Holds the main thread up, as a hang would, for a test of what a second copy does about it.
+pub fn test_freeze(app: &AppHandle, ms: u64) {
+    let app = app.clone();
+    std::thread::spawn(move || app.run_on_main_thread(move || std::thread::sleep(Duration::from_millis(ms))));
 }
 
 /// What opening the window does, for a test on a PC someone's using: it must not take their keyboard.
@@ -249,9 +293,12 @@ pub fn test_state(st: &AppState) -> serde_json::Value {
     serde_json::json!({
         "tray": *st.attention.tray.lock().unwrap(),
         "taskbar": *st.attention.taskbar.lock().unwrap(),
+        "tooltip": *st.attention.tooltip.lock().unwrap(),
         "parked": st.attention.parked(),
         "motion": st.attention.motion.load(Ordering::SeqCst),
         "swaps": st.attention.swaps.load(Ordering::SeqCst),
+        "hammers": HAMMERS.load(Ordering::SeqCst),
+        "rounds": HAMMER_ROUNDS.load(Ordering::SeqCst),
     })
 }
 

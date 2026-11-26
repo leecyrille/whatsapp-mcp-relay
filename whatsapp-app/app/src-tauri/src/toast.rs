@@ -9,6 +9,7 @@
 
 use crate::{media, AppState};
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -249,12 +250,33 @@ pub fn clock(ms: i64) -> String {
 }
 
 fn silence_changed(app: &AppHandle, st: &AppState) {
-    let until = silenced_until(st);
-    if let (Ok(menu), Some(tray)) = (tray_menu(app, until), st.tray.lock().unwrap().as_ref()) {
-        let _ = tray.set_menu(Some(menu));
-    }
+    refresh_tray_menu(app);
     crate::update_tray(app, st);
-    let _ = app.emit("silence", until);
+    let _ = app.emit("silence", silenced_until(st));
+}
+
+static MENU_QUEUED: AtomicBool = AtomicBool::new(false);
+
+/// Gives the tray the menu for how things are by then, on the main thread, without waiting for it. Always from
+/// another thread, even when called on the main one: that puts it in the queue, where it can't start in the middle of
+/// another tray call, such as while handling a second copy's message.
+fn refresh_tray_menu(app: &AppHandle) {
+    // One that's still queued will show this change too.
+    if MENU_QUEUED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            MENU_QUEUED.store(false, Ordering::SeqCst);
+            let Some(st) = handle.try_state::<Arc<AppState>>() else { return };
+            let Some(tray) = crate::tray(&st) else { return };
+            if let Ok(menu) = tray_menu(&handle, silenced_until(&st)) {
+                let _ = tray.set_menu(Some(menu));
+            }
+        });
+    });
 }
 
 pub fn tray_menu(app: &AppHandle, until: Option<i64>) -> tauri::Result<Menu<tauri::Wry>> {

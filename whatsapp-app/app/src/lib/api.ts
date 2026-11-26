@@ -114,6 +114,21 @@ export interface Message {
   reactors?: Reactor[];
 }
 
+export type PhotoStep = "older" | "newer" | "oldest" | "newest";
+
+export interface Photo {
+  msg: Message;
+  /** Its file is already on this computer, so showing it downloads nothing. */
+  cached: boolean;
+}
+
+/** Where the photo viewer is in a chat, and what's either side of it. */
+export interface PhotoSpot {
+  photo: Photo | null;
+  older: Photo | null;
+  newer: Photo | null;
+}
+
 export interface Reactor {
   jid: string;
   /** Their one address here, for their picture and card. Empty for the user. */
@@ -232,6 +247,8 @@ export const api = {
   after: (chat: string, afterTs: number, afterRowid: number, limit = 300) =>
     invoke<Message[]>("messages_after", { chat, afterTs, afterRowid, limit }),
   around: (rowid: number) => invoke<Message[]>("messages_around", { rowid }),
+  photoSpot: (chat: string, step: PhotoStep | null, ts: number, rowid: number) =>
+    invoke<PhotoSpot>("photo_spot", { chat, step, ts, rowid }),
   search: (query: string, limit = 100) => invoke<SearchHit[]>("search", { query, limit }),
   markRead: (chat: string) => invoke<void>("mark_read", { chat }),
   setActive: (chat: string | null) => invoke<void>("set_active_chat", { chat }),

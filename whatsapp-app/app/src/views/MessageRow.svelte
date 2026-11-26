@@ -237,6 +237,7 @@
         class:stick={msg.media === "sticker"}
         style:width="{msg.media === 'sticker' ? 160 : box.w}px"
         style:height="{msg.media === 'sticker' ? 160 : box.h}px"
+        onmousedown={(e) => e.preventDefault()}
         onclick={() => (imageReady ? onview(msg) : retryImage())}
         aria-label="View image"
       >

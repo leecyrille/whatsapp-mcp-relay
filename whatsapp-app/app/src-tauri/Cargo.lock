@@ -4965,7 +4965,7 @@ dependencies = [
 
 [[package]]
 name = "wa-relay-app"
-version = "1.2.23"
+version = "1.2.24"
 dependencies = [
  "base64 0.22.1",
  "chrono",

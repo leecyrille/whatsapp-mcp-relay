@@ -3007,6 +3007,243 @@ try {
     await page.getByRole("button", { name: "Chats", exact: true }).click();
   }
 
+  // The photo viewer's keys: Left is older and Right is newer, through every photo of the chat and nothing
+  // else, with the conversation behind left alone.
+  {
+    const CLUB = "120363000000000077@g.us";
+    const PAL = "15550000088@s.whatsapp.net";
+    const day = 86400000;
+    const start = Date.now() - 20 * day;
+    const bob = { sender: "15550000002", sender_jid: DM2, push_name: "Bob" };
+    const pic = (chat, id, ts, extra = {}) => ({ id, chat, text: `Caption ${id}`, ts, media: "image", mime: "image/png", size: 900, width: 400, height: 300, thumb: true, filename: `${id}.png`, ...extra });
+    const text = (chat, id, ts, extra = {}) => ({ id, chat, text: `Made-up line ${id}`, ts, ...extra });
+    let at = start;
+    const next = () => (at += 60000);
+    const club = [
+      pic(CLUB, "ph-1", next(), bob),
+      pic(CLUB, "ph-2", next(), bob),
+      pic(CLUB, "ph-3", next(), bob),
+      pic(CLUB, "ph-4", next(), { from_me: true, sender: "15559990000", status: "read" }),
+      ...Array.from({ length: 110 }, (_, i) => text(CLUB, `club-${i}`, next(), bob)),
+      pic(CLUB, "ph-5", next(), bob),
+      pic(CLUB, "ph-video", next(), { ...bob, media: "video", mime: "video/mp4", seconds: 4 }),
+      pic(CLUB, "ph-sticker", next(), { ...bob, media: "sticker" }),
+      pic(CLUB, "ph-doc", next(), { ...bob, media: "document", mime: "application/pdf", filename: "made-up.pdf" }),
+      pic(CLUB, "ph-gone", next(), { ...bob, text: "", revoked: true }),
+      pic(CLUB, "ph-6", next(), bob),
+      pic(CLUB, "ph-7", next(), bob),
+      text(CLUB, "club-last", next(), bob),
+    ];
+    at = start;
+    const pal = [
+      ...Array.from({ length: 30 }, (_, i) => pic(PAL, `run-${i + 1}`, next())),
+      ...Array.from({ length: 110 }, (_, i) => text(PAL, `pal-${i}`, next())),
+      pic(PAL, "run-31", next()),
+      text(PAL, "pal-last", next()),
+    ];
+    await control("media-rules", { fail: ["ph-2"], slow: { "ph-3": 1500 } });
+    await control("add-chats", { chats: [{ jid: CLUB, name: "Made-up Photo Club", ts: start, read: true }, { jid: PAL, name: "Made-up Penpal", ts: start, read: true }] });
+    await control("add-messages", { messages: club });
+    await control("add-messages", { messages: pal });
+    const chats = async () => page.evaluate(() => window.__TAURI_INTERNALS__.invoke("chat_list"));
+    await until(async () => (await chats()).some((c) => c.jid === PAL && c.preview.includes("pal-last")));
+    const box = page.getByLabel("Message", { exact: true });
+    const search = page.locator("#search");
+    const open = async (name) => {
+      await page.getByRole("button", { name: "Chats", exact: true }).click();
+      await search.fill(name);
+      await page.locator(".results .row", { hasText: name }).first().click();
+      await search.fill("");
+      await until(async () => (await page.locator(".convo .title .name").innerText()) === name);
+    };
+    const viewer = page.getByRole("dialog", { name: "Image" });
+    const showing = async () => (await viewer.locator("p").innerText().catch(() => "")).replace("Caption ", "");
+    const on = (id) => until(async () => (await showing()) === id, 5000);
+    const full = (id) => until(async () => (await showing()) === id && (await viewer.locator("img.full.loaded").evaluate((i) => i.naturalWidth)) === 100 + Number(id.split("-")[1]), 6000);
+    const key = (k) => page.keyboard.press(k);
+    const gets = async (prefix) => ((await relayLog()).mediaGets ?? []).filter((id) => id.startsWith(prefix));
+    const older = viewer.getByRole("button", { name: "Older photo" });
+    const newer = viewer.getByRole("button", { name: "Newer photo" });
+    const off = (b) => b.getAttribute("aria-disabled").then((v) => v === "true");
+    const picOf = (id) => page.locator(".convo .row", { hasText: `Caption ${id}` }).locator(".pic");
+    const ready = (id) => until(() => picOf(id).locator("img.full.ready").isVisible(), 8000);
+    const behind = () =>
+      page.evaluate(() => {
+        const t = document.querySelector(".convo textarea");
+        const s = document.querySelector(".convo .scroller");
+        return JSON.stringify({ text: t.value, from: t.selectionStart, to: t.selectionEnd, top: s.scrollTop, rows: document.querySelectorAll(".convo .row").length, chat: document.querySelector(".convo .title .name").textContent });
+      });
+    const inViewer = () => page.evaluate(() => !!document.activeElement?.closest("[role=dialog][aria-label=Image]"));
+
+    await open("Made-up Photo Club");
+    await ready("ph-7");
+    await box.fill("half a thought");
+    await box.evaluate((t) => t.setSelectionRange(4, 4));
+    await page.waitForTimeout(400);
+    const start0 = await behind();
+    check("photos: older photos aren't among the rows the conversation has loaded", (await page.locator(".convo .row", { hasText: "Caption ph-4" }).count()) === 0);
+    await picOf("ph-7").click();
+    check("photos: a click opens one, and the keyboard goes to the viewer", !!(await full("ph-7")) && (await inViewer()));
+    check("photos: it says who sent it and when", /^Bob Plumber\s/.test(await viewer.locator(".about").innerText()) && /\d{4}/.test(await viewer.locator(".about").innerText()), await viewer.locator(".about").innerText());
+    check("photos: at the newest there's nothing newer to go to", !!(await until(async () => (await off(newer)) && !(await off(older)))));
+    await key("ArrowRight");
+    await page.waitForTimeout(250);
+    check("photos: Right at the newest does nothing", (await showing()) === "ph-7");
+    await key("ArrowLeft");
+    check("photos: Left shows the older one", !!(await full("ph-6")));
+    await page.screenshot({ path: path.join(shotDir, "83-photo-keys.png") });
+    await key("ArrowRight");
+    check("photos: Right goes back to the newer one", !!(await full("ph-7")));
+    await key("ArrowLeft");
+    await on("ph-6");
+    await key("ArrowLeft");
+    check("photos: a video, a sticker, a file and a deleted photo between them are passed over", !!(await full("ph-5")));
+    await page.waitForTimeout(700);
+    check("photos: the next one isn't downloaded before it's asked for", !(await gets("ph-")).includes("ph-4"), JSON.stringify(await gets("ph-")));
+    await key("ArrowLeft");
+    check("photos: Left goes past the rows the conversation has loaded, and downloads it", !!(await full("ph-4")) && (await gets("ph-4")).length === 1);
+    check("photos: your own says You", /^You\s/.test(await viewer.locator(".about").innerText()), await viewer.locator(".about").innerText());
+    await key("ArrowLeft");
+    await on("ph-3");
+    check("photos: one still downloading shows its small picture and says so", !!(await until(async () => (await viewer.locator("img.thumb").isVisible()) && (await viewer.locator(".note").innerText()) === "Loading…" && (await gets("ph-3")).length === 1)));
+    await page.screenshot({ path: path.join(shotDir, "84-photo-downloading.png") });
+    await key("ArrowLeft");
+    const failed = viewer.locator(".note[role=alert]");
+    check("photos: one the phone no longer has says so", !!(await until(async () => (await showing()) === "ph-2" && (await failed.innerText()).includes("no longer on the phone"))));
+    await page.waitForTimeout(1800);
+    check("photos: the slow one finishing late doesn't show over it", (await showing()) === "ph-2" && (await failed.isVisible()) && (await viewer.locator("img.full").count()) === 0);
+    await page.screenshot({ path: path.join(shotDir, "85-photo-failed.png") });
+    await key("ArrowLeft");
+    check("photos: and it's not a dead end", !!(await full("ph-1")));
+    check("photos: at the oldest there's nothing older to go to", (await off(older)) && !(await off(newer)));
+    await key("ArrowLeft");
+    await page.waitForTimeout(250);
+    check("photos: Left at the oldest does nothing", (await showing()) === "ph-1");
+    await key("End");
+    check("photos: End is the chat's newest", !!(await full("ph-7")));
+    await key("Home");
+    check("photos: Home is its oldest", !!(await full("ph-1")));
+    await control("media-rules", { fail: [], slow: {} });
+    await key("ArrowRight");
+    await until(() => failed.isVisible());
+    await page.waitForTimeout(200);
+    if (await failed.isVisible()) await failed.getByRole("button", { name: "Try again" }).click();
+    check("photos: one that failed can be tried again", !!(await full("ph-2")));
+    await key("ArrowRight");
+    check("photos: and the slow one is there by then", !!(await full("ph-3")));
+    check("photos: downloaded once", (await gets("ph-3")).length === 1);
+
+    await key("Home");
+    await on("ph-1");
+    for (let i = 0; i < 4; i++) await key("ArrowRight");
+    check("photos: keys pressed quickly are all taken, in order", !!(await full("ph-5")));
+    for (const k of ["ArrowRight", "ArrowRight", "ArrowRight", "ArrowLeft"]) await key(k);
+    check("photos: past the end they stop, and the last key still counts", !!(await full("ph-6")));
+
+    await newer.click();
+    check("photos: the on-screen arrow goes newer", !!(await full("ph-7")) && (await inViewer()));
+    await newer.click({ force: true });
+    await page.waitForTimeout(250);
+    check("photos: at the end it does nothing, and nothing closes", (await showing()) === "ph-7" && (await viewer.isVisible()));
+    await older.click();
+    check("photos: the other goes older", !!(await full("ph-6")));
+    for (let i = 0; i < 4; i++) await key("Tab");
+    check("photos: Tab stays in the viewer", await inViewer());
+    const now = await page.evaluate(() => document.activeElement.getAttribute("aria-label"));
+    await key("ArrowLeft");
+    check("photos: the keys work from a button too", !!(await full("ph-5")), now);
+
+    await control("incoming", { ...pic(CLUB, "ph-8", Date.now() - 1000, bob) });
+    await key("End");
+    await full("ph-8");
+    await control("incoming", { ...pic(CLUB, "ph-9", Date.now(), bob) });
+    check("photos: a new one arriving doesn't move the one on show", !!(await until(async () => !(await off(newer)))) && (await showing()) === "ph-8" && (await viewer.locator("img.full.loaded").evaluate((i) => i.naturalWidth)) === 108);
+    await key("ArrowRight");
+    check("photos: and Right then goes to it", !!(await full("ph-9")));
+    await control("incoming", { ...pic(CLUB, "ph-9", Date.now(), { ...bob, text: "", revoked: true }) });
+    check("photos: one deleted while on show goes, and says so", !!(await until(async () => (await viewer.locator(".note").innerText()) === "This photo was deleted." && (await viewer.locator("img").count()) === 0)));
+    await key("ArrowLeft");
+    check("photos: and Left carries on from there", !!(await full("ph-8")));
+
+    // From the viewer itself: Space or Enter on one of its buttons presses that button.
+    await viewer.evaluate((v) => v.focus());
+    const start1 = JSON.parse(await behind());
+    for (const k of ["x", "y", " ", "Enter", "Backspace", "Delete", "ArrowUp", "ArrowDown", "PageUp", "PageDown", "ArrowLeft", "ArrowRight", "Shift+ArrowLeft", "Control+ArrowLeft", "Alt+ArrowLeft", "Control+k", "Control+a"]) await key(k);
+    await page.waitForTimeout(300);
+    check("photos: no key gets through to the conversation or the box behind", JSON.stringify(JSON.parse(await behind())) === JSON.stringify(start1) && (await inViewer()) && (await search.evaluate((s) => s !== document.activeElement)), `${await behind()} / ${JSON.stringify(start1)}`);
+    check("photos: and with Shift, Ctrl or Alt the arrows move nothing", (await showing()) === "ph-8");
+    await box.evaluate((t) => t.focus());
+    await key("q");
+    check("photos: typing stays out of the box even if something else focused it", (await box.inputValue()) === "half a thought" && (await inViewer()));
+    const s0 = JSON.parse(start0);
+    check("photos: the half-written message and its caret are as they were", start1.text === s0.text && start1.from === 4 && start1.to === 4 && start1.chat === s0.chat, JSON.stringify(start1));
+    await key("Escape");
+    check("photos: Escape closes it", !!(await until(async () => (await viewer.count()) === 0)));
+    check("photos: and typing goes on where it left off", await page.evaluate(() => document.activeElement === document.querySelector(".convo textarea")));
+    await page.keyboard.type("+");
+    check("photos: at the same place", (await box.inputValue()) === "half+ a thought", await box.inputValue());
+    check("photos: the conversation is where it was", JSON.parse(await behind()).top === start1.top && start1.top === s0.top);
+
+    // Opened from the keyboard, it goes back to the photo.
+    await picOf("ph-8").focus();
+    await key("Enter");
+    await full("ph-8");
+    await key("ArrowLeft");
+    await full("ph-7");
+    await key("Escape");
+    await until(async () => (await viewer.count()) === 0);
+    check("photos: opened with the keyboard, it goes back to the photo it was opened from", await picOf("ph-8").evaluate((b) => b === document.activeElement));
+
+    // Escape held a moment too long doesn't go on to cancel a reply.
+    await page.locator(".convo .row", { hasText: "Made-up line club-last" }).click({ button: "right" });
+    await page.getByRole("menuitem", { name: "Reply", exact: true }).click();
+    const replying = page.getByRole("button", { name: /cancel reply/i });
+    await until(() => replying.isVisible());
+    await picOf("ph-8").click();
+    await full("ph-8");
+    await page.keyboard.down("Escape");
+    await until(async () => (await viewer.count()) === 0);
+    await page.keyboard.down("Escape");
+    await page.keyboard.down("Escape");
+    await page.keyboard.up("Escape");
+    check("photos: holding Escape doesn't cancel the reply behind", await replying.isVisible());
+    await key("Escape");
+    check("photos: pressing it again does", !!(await until(async () => (await replying.count()) === 0)));
+    await box.fill("");
+
+    // A sticker opens as before, and the arrows go to the photos either side of it.
+    const sticker = page.locator(".convo .pic.stick").last();
+    await sticker.scrollIntoViewIfNeeded();
+    await until(() => sticker.locator("img.full.ready").isVisible());
+    await sticker.click();
+    await until(() => viewer.isVisible());
+    await key("ArrowLeft");
+    check("photos: from a sticker, Left is the photo before it", !!(await full("ph-5")));
+    await page.locator(".side .row").evaluateAll((rows) => rows.find((r) => !r.textContent.includes("Photo Club"))?.click());
+    check("photos: another chat opening closes it", !!(await until(async () => (await viewer.count()) === 0)));
+
+    // One-to-one, with the key held down through photos that aren't on this computer yet.
+    await open("Made-up Penpal");
+    await ready("run-31");
+    await picOf("run-31").click();
+    check("photos: in a one-to-one chat too", !!(await full("run-31")) && /^Made-up Penpal\s/.test(await viewer.locator(".about").innerText()), await viewer.locator(".about").innerText());
+    for (let i = 0; i < 14; i++) {
+      await page.keyboard.down("ArrowLeft");
+      await sleep(25);
+    }
+    await page.keyboard.up("ArrowLeft");
+    await page.waitForTimeout(300);
+    const landed = await showing();
+    check("photos: holding the key goes through many", Number(landed.split("-")[1]) <= 24, landed);
+    check("photos: and stops on one that then shows", !!(await full(landed)), landed);
+    await page.waitForTimeout(800);
+    const fetched = (await gets("run-")).filter((id) => id !== "run-31");
+    check("photos: only the one it stopped on was downloaded", fetched.length === 1 && fetched[0] === landed && (await showing()) === landed, `${landed} ${JSON.stringify(fetched)}`);
+    await key("Escape");
+    await until(async () => (await viewer.count()) === 0);
+    check("photos: nothing was sent", !(await relayLog()).sent.some((s) => [CLUB, PAL].includes(s.chat)));
+  }
+
   check("no script errors during the run", pageErrors.length === 0, pageErrors.join(" | "));
 } catch (e) {
   check("run completed", false, e.stack ?? String(e));

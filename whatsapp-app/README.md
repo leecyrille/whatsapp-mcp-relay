@@ -46,7 +46,11 @@ None of the real config files belong in a repository: they hold your domain, log
   contact card to edit, with their picture big at the top. Click the picture for full-screen. Someone with no card
   gets a new one filled in with their name and number. The full-size picture needs a bridge that keeps it
   (`/api/app/picture/full`); otherwise the small one shows.
-- Notifications, a tray icon, start with Windows, and quiet automatic updates.
+- Photos with the keyboard: with one open, Left is the older and Right the newer, through every photo of that chat
+  this copy has, Home and End are the ends, and Escape closes it. One that isn't on this PC yet downloads when you stop
+  on it. Videos, stickers and files are passed over.
+- Notifications, a tray icon, start with Windows, and quiet automatic updates. Opening the app while a copy that's
+  running has stopped answering says so after 10 seconds. It never ends that copy, or runs beside it.
 - Optional: a Claude panel that runs jobs on the home PC, where every action that can change anything waits for your
   approval in the app, and Claude sorting chats into your groups. Both need `wa-runner` running on the home PC with
   Claude Code installed there. Without it, the panel says Claude can't be reached and everything else works.
@@ -169,6 +173,9 @@ End to end, with the real app against a fake relay, made-up data and an off-scre
 - `node e2e/run.mjs <folder with playwright-core> <screenshot folder>`: the whole app.
 - `node e2e/first-run.mjs <playwright-core> <screenshots>`: the first run's relay question.
 - `node e2e/read-retry.mjs <playwright-core>`: reads that fail are kept and sent later.
+- `node e2e/hang.mjs <playwright-core> <exe>`: the app can't lock up when the tray, silence and blink all change at
+  once, and a second copy says so if the first has stopped answering. The exe is a test build with its own identifier
+  (the command is at the top of the file), so it can't reach a real copy.
 
 Real updates, between real installers under a throwaway name and key, against a fake relay:
 

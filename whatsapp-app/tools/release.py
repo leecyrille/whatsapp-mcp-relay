@@ -3,6 +3,7 @@ a GitHub release, which every copy checks first.
 
     python tools/release.py                  # dist, plus GitHub once the repository is public
     python tools/release.py --github dry-run # dist, and the GitHub files and command, without publishing
+    python tools/release.py --stage          # the GitHub files only: not served by the relay, not published
     python tools/release.py --bake-relay --step
         # a build with this site's relay address built in, for dist only, that every older copy passes
         # through first, so each saves the address before a build without one arrives
@@ -308,7 +309,11 @@ def main() -> int:
                         help="publish (once the repository is public), dry-run, or skip")
     parser.add_argument("--bake-relay", action="store_true", help="build this site's relay address in; dist only, never GitHub")
     parser.add_argument("--step", action="store_true", help="older copies pass through this release first")
+    parser.add_argument("--stage", action="store_true",
+                        help="only make the GitHub files, for checking first: nothing goes to dist or GitHub")
     args = parser.parse_args()
+    if args.stage and (args.bake_relay or args.step):
+        raise SystemExit("--stage is for GitHub builds. It doesn't go with --bake-relay or --step.")
     version = configured_version()
     details = site()
     env = dict(os.environ)
@@ -333,9 +338,15 @@ def main() -> int:
     except ValueError as e:
         raise SystemExit(f"Not publishing: {e}.") from e
     check_rejects_tampering(data, sig_b64, pubkey, version)
-    if not args.bake_relay and args.github != "skip":
+    if not args.bake_relay and (args.stage or args.github != "skip"):
         # Before dist, so a build that can't go to GitHub doesn't use up its version number.
         check_build_is_generic(details)
+    if args.stage:
+        print(f"SHA-256 {hashlib.sha256(data).hexdigest().upper()}, {len(data)} bytes")
+        print("Signature verified against the app's public key, and a tampered copy was refused.")
+        publish_github(installer, sig_b64, version, "dry-run", details)
+        print("Staged only: dist is unchanged, so the relay doesn't offer it.")
+        return 0
     target = publish(installer, sig, version, step=args.step)
     print(f"Published {target.name}, {target.stat().st_size} bytes{' as a step release' if args.step else ''}")
     print(f"SHA-256 {hashlib.sha256(target.read_bytes()).hexdigest().upper()}")

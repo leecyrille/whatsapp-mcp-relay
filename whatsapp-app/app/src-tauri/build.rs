@@ -11,6 +11,7 @@ const COMMANDS: &[&str] = &[
     "messages_page",
     "messages_after",
     "messages_around",
+    "photo_spot",
     "search",
     "mark_read",
     "set_active_chat",
